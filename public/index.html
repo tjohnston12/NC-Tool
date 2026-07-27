@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MRDC NC — Non-Conformance</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnIHZpZXdCb3g9JzAgMCAzMiAzMic+PHJlY3Qgd2lkdGg9JzMyJyBoZWlnaHQ9JzMyJyByeD0nNicgZmlsbD0nIzhBMkQ1QicvPjx0ZXh0IHg9JzE2JyB5PScyMicgZm9udC1mYW1pbHk9J0dlb3JnaWEsc2VyaWYnIGZvbnQtc2l6ZT0nMTYnIGZvbnQtd2VpZ2h0PSdib2xkJyBmaWxsPScjRkZEOTZCJyB0ZXh0LWFuY2hvcj0nbWlkZGxlJz5OPC90ZXh0Pjwvc3ZnPg==">
+<style>
+:root{ --navy:#1E2B5E; --wine:#8A2D5B; --line:#E3E6EF; --muted:#667; --bg:#F4F5F8;
+  --bad:#A32D2D; --amber:#8A5A00; --good:#0F6E56; }
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:#16181D;font-size:14px}
+a{color:var(--navy)}
+button{font:inherit}
+.brand{background:var(--navy);color:#fff;padding:12px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.brand h1{font-size:16.5px;margin:0;font-weight:650}
+.brand .sub{font-size:11.5px;color:rgba(255,255,255,.72)}
+.brand input{border:none;border-radius:8px;padding:8px 12px;font-size:13.5px;width:250px;background:#fff;color:#16181D}
+.btn{background:var(--navy);color:#fff;border:none;border-radius:8px;padding:9px 16px;font-weight:600;cursor:pointer}
+.btn.sm{padding:7px 12px;font-size:13px}
+.btn.ghost{background:#fff;color:var(--navy);border:1px solid var(--line)}
+.btn.wine{background:var(--wine)}
+.btn:disabled{opacity:.55;cursor:default}
+main{max-width:1180px;margin:0 auto;padding:16px 20px 60px}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:4px 0 14px}
+@media(max-width:720px){.kpis{grid-template-columns:1fr 1fr}}
+.kpi{background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 16px;cursor:pointer}
+.kpi b{font-size:22px;display:block}
+.kpi span{font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:700}
+.kpi.over b{color:var(--bad)} .kpi.major b{color:var(--wine)} .kpi.done b{color:var(--good)}
+.card{background:#fff;border:1px solid var(--line);border-radius:10px;margin-bottom:14px}
+.card h2{font-size:15px;margin:0;padding:13px 16px;border-bottom:1px solid var(--line)}
+.card h2 small{font-weight:400;color:var(--muted);font-size:12px;margin-left:8px}
+.filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line)}
+.filters select,.filters input{padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:13px;background:#fff}
+.filters input{flex:1;min-width:180px}
+.tw{overflow-x:auto}
+table{border-collapse:collapse;width:100%}
+th{font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);text-align:left;padding:9px 12px;border-bottom:2px solid var(--line);white-space:nowrap}
+td{padding:9px 12px;border-bottom:1px solid #F0F1F5;vertical-align:top}
+tbody tr{cursor:pointer} tbody tr:hover td{background:#F7F8FB}
+.pill{display:inline-block;font-size:11px;font-weight:700;padding:1px 9px;border-radius:20px;white-space:nowrap}
+.c-Major{background:#FBE9E9;color:var(--bad)} .c-Minor{background:#FDF0DD;color:var(--amber)} .c-OFI{background:#E7EFFA;color:#1B4F8A}
+.s-New{background:#EEF0F4;color:#444} .s-Containment{background:#FDEBDD;color:#8A4A12}
+.s-RootCause{background:#FDF0DD;color:var(--amber)} .s-CorrectiveAction{background:#E0F2F0;color:#0F6E56}
+.s-Verification{background:#E7EFFA;color:#1B4F8A} .s-Closed{background:#E3F3EC;color:var(--good)} .s-Cancelled{background:#F1F2F6;color:#889}
+.overdue{color:var(--bad);font-weight:700}
+.muted{color:var(--muted)} .small{font-size:12px}
+.empty{text-align:center;color:var(--muted);padding:26px}
+.ov{display:none;position:fixed;inset:0;background:rgba(20,25,40,.5);z-index:2000;overflow:auto;padding:84px 16px 28px}
+.ov.on{display:block}
+.sheet{max-width:880px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden}
+.sheet header{background:var(--navy);color:#fff;padding:16px 22px}
+.sheet header h2{margin:0;font-size:17px}
+.sheet header .small{color:rgba(255,255,255,.75)}
+.cbody{padding:18px 22px}
+dl{display:grid;grid-template-columns:150px 1fr;gap:4px 14px;margin:0 0 14px;font-size:13.5px}
+dt{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.4px;font-weight:700;padding-top:2px}
+dd{margin:0}
+label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);font-weight:700;margin:0 0 4px}
+.fieldrow{margin-bottom:12px}
+.fieldrow input,.fieldrow select,.fieldrow textarea{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:13.5px;background:#fff;font-family:inherit}
+.fieldrow textarea{min-height:64px;resize:vertical}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 16px}
+.grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 16px}
+@media(max-width:680px){.grid2,.grid3{grid-template-columns:1fr}}
+.stage{border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:12px}
+.stage h3{margin:0 0 10px;font-size:13px;color:var(--navy);text-transform:uppercase;letter-spacing:.5px}
+.stage.admin{border-color:#D9C2CE;background:#FBF7F9}
+.log{background:#F7F8FB;border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:12.5px;white-space:pre-wrap;max-height:180px;overflow:auto}
+.btnrow{display:flex;gap:10px;justify-content:flex-end;padding:14px 22px;border-top:1px solid var(--line);flex-wrap:wrap}
+.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:#16181D;color:#fff;padding:10px 18px;border-radius:8px;font-size:13.5px;opacity:0;pointer-events:none;transition:opacity .25s;z-index:3000;max-width:90vw}
+.toast.on{opacity:1}
+.x{position:absolute;right:18px;top:14px;background:none;border:none;color:#fff;font-size:22px;cursor:pointer}
+.sheet header{position:relative}
+</style>
+</head>
+<body>
+
+<div class="brand">
+  <div>
+    <h1>MRDC NC <span style="font-weight:400;color:rgba(255,255,255,.8)">· Non-Conformance</span></h1>
+    <div class="sub">Quality · Provincial · ISO · CAPA tracking</div>
+  </div>
+  <input id="g-q" type="search" placeholder="Search NC #, clause, keywords…">
+  <button class="btn sm" id="g-go">Search</button>
+  <button class="btn sm wine" id="g-new" style="display:none">+ New NC</button>
+  <button class="btn sm ghost" id="g-help" title="What the stages and classes mean" style="background:transparent;color:#fff;border-color:rgba(255,255,255,.4)">?</button>
+</div>
+
+<main>
+  <div class="kpis" id="kpis"></div>
+  <div class="card">
+    <div class="filters">
+      <select id="f-status">
+        <option value="open">All open</option><option value="">All</option>
+        <option value="overdue">Overdue</option>
+        <option>New</option><option>Containment</option><option>Root Cause</option>
+        <option>Corrective Action</option><option>Verification</option>
+        <option>Closed</option><option>Cancelled</option>
+      </select>
+      <select id="f-class"><option value="">Any class</option><option>Major</option><option>Minor</option><option>OFI</option></select>
+      <select id="f-source"><option value="">Any source</option><option>Quality Audit</option><option>Provincial Audit</option><option>ISO Audit</option><option>Internal Audit</option><option>Client / Contract</option><option>Other</option></select>
+      <select id="f-division"><option value="">All divisions</option><option>Western</option><option>Eastern</option><option>Corporate</option></select>
+      <input type="text" id="f-q" placeholder="keywords — clause, description, responsible…">
+      <button class="btn sm" id="f-go">Filter</button>
+      <button class="btn sm ghost" id="f-clear">Clear</button>
+      <span class="muted small" id="list-count"></span>
+    </div>
+    <div class="tw"><table>
+      <thead><tr><th>NC #</th><th>Status</th><th>Class</th><th>Source</th><th>Clause / standard</th><th>Description</th><th>Division</th><th>Responsible</th><th>Due</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table></div>
+  </div>
+</main>
+
+<!-- DETAIL -->
+<div class="ov" id="dv"><div class="sheet">
+  <header><h2 id="d-title">NC</h2><div class="small" id="d-sub"></div><button class="x" id="d-x">×</button></header>
+  <div class="cbody">
+    <dl id="d-facts"></dl>
+
+    <div class="grid3">
+      <div class="fieldrow"><label class="f">Status</label>
+        <select id="d-status"><option>New</option><option>Containment</option><option>Root Cause</option><option>Corrective Action</option><option>Verification</option><option>Closed</option><option>Cancelled</option></select></div>
+      <div class="fieldrow"><label class="f">Classification</label>
+        <select id="d-class"><option value=""></option><option>Major</option><option>Minor</option><option>OFI</option></select></div>
+      <div class="fieldrow"><label class="f">Due date</label><input type="date" id="d-due"></div>
+    </div>
+    <div class="grid2">
+      <div class="fieldrow"><label class="f">Division</label>
+        <select id="d-division"><option value=""></option><option>Western</option><option>Eastern</option><option>Corporate</option></select></div>
+      <div class="fieldrow"><label class="f">Responsible person</label><input id="d-resp" type="text"></div>
+    </div>
+
+    <div class="stage"><h3>Containment — immediate action</h3>
+      <div class="fieldrow"><textarea id="d-contain" placeholder="What was done right away to contain the problem…"></textarea></div></div>
+    <div class="stage"><h3>Root cause</h3>
+      <div class="fieldrow"><textarea id="d-root" placeholder="Root cause analysis — 5-why, fishbone…"></textarea></div></div>
+    <div class="stage"><h3>Corrective &amp; preventive action</h3>
+      <div class="fieldrow"><label class="f">Corrective action (eliminates the root cause)</label><textarea id="d-corrective"></textarea></div>
+      <div class="fieldrow"><label class="f">Preventive action (optional — stops recurrence elsewhere)</label><textarea id="d-preventive"></textarea></div>
+      <div class="fieldrow" style="max-width:230px"><label class="f">Date action completed</label><input type="date" id="d-done"></div></div>
+
+    <div class="stage admin" id="d-verifybox"><h3>Verification &amp; closure — NC admin</h3>
+      <div class="grid3">
+        <div class="fieldrow"><label class="f">Verified by</label><input id="d-verby" type="text"></div>
+        <div class="fieldrow"><label class="f">Date verified</label><input type="date" id="d-verdate"></div>
+        <div class="fieldrow"><label class="f">Date closed</label><input type="date" id="d-closed"></div>
+      </div>
+      <div class="fieldrow"><label class="f">Verification notes (evidence of effectiveness)</label><textarea id="d-vernotes"></textarea></div></div>
+
+    <div class="fieldrow"><label class="f">Add a comment</label>
+      <div style="display:flex;gap:8px"><input id="d-comment" type="text" placeholder="Stamped into the activity log…" style="flex:1;padding:8px 10px;border:1px solid var(--line);border-radius:8px">
+      <button class="btn sm ghost" id="d-addcomment">Add</button></div></div>
+    <label class="f">Activity log</label>
+    <div class="log" id="d-log"></div>
+  </div>
+  <div class="btnrow">
+    <button class="btn ghost" id="d-cancel">Close</button>
+    <button class="btn" id="d-save" style="display:none">Save changes</button>
+  </div>
+</div></div>
+
+<!-- NEW NC -->
+<div class="ov" id="nv"><div class="sheet">
+  <header><h2>Raise a non-conformance</h2><div class="small">From a Quality, Provincial, ISO or other audit — the NC # is assigned automatically</div><button class="x" id="n-x">×</button></header>
+  <div class="cbody">
+    <div class="grid3">
+      <div class="fieldrow"><label class="f">Source</label>
+        <select id="n-source"><option>Quality Audit</option><option>Provincial Audit</option><option>ISO Audit</option><option>Internal Audit</option><option>Client / Contract</option><option>Other</option></select></div>
+      <div class="fieldrow"><label class="f">Source reference (audit / report #)</label><input id="n-ref" type="text" placeholder="QA-20260715-001…"></div>
+      <div class="fieldrow"><label class="f">Classification</label>
+        <select id="n-class"><option>Major</option><option>Minor</option><option>OFI</option></select></div>
+    </div>
+    <div class="grid3">
+      <div class="fieldrow"><label class="f">Date raised</label><input type="date" id="n-date"></div>
+      <div class="fieldrow"><label class="f">Division</label>
+        <select id="n-division"><option value=""></option><option>Western</option><option>Eastern</option><option>Corporate</option></select></div>
+      <div class="fieldrow"><label class="f">Due date</label><input type="date" id="n-due"></div>
+    </div>
+    <div class="grid2">
+      <div class="fieldrow"><label class="f">Standard / clause violated</label><input id="n-clause" type="text" placeholder="ISO 9001 8.5.1 · OMM 706 · contract §4.2…"></div>
+      <div class="fieldrow"><label class="f">Responsible person</label><input id="n-resp" type="text"></div>
+    </div>
+    <div class="fieldrow"><label class="f">Requirement (what the standard requires)</label><textarea id="n-req"></textarea></div>
+    <div class="fieldrow"><label class="f">Description of the non-conformance *</label><textarea id="n-desc" placeholder="What was found, where, and the evidence…"></textarea></div>
+  </div>
+  <div class="btnrow">
+    <button class="btn ghost" id="n-cancel">Cancel</button>
+    <button class="btn wine" id="n-save">Raise NC</button>
+  </div>
+</div></div>
+
+<!-- HELP -->
+<div class="ov" id="hv"><div class="sheet">
+  <header><h2>How NCs work</h2><div class="small">Classifications and the CAPA workflow</div><button class="x" id="h-x">×</button></header>
+  <div class="cbody" style="font-size:14px;line-height:1.55">
+    <label class="f">Classification</label>
+    <dl style="grid-template-columns:90px 1fr;margin-bottom:18px">
+      <dt><span class="pill c-Major">Major</span></dt><dd>A total breakdown of a requirement, or a systemic failure — jeopardizes the quality system or contract compliance. Priority attention.</dd>
+      <dt><span class="pill c-Minor">Minor</span></dt><dd>An isolated lapse against a requirement — the system works, but this instance didn't follow it.</dd>
+      <dt><span class="pill c-OFI">OFI</span></dt><dd>Opportunity For Improvement — not a non-conformance, but worth acting on before it becomes one.</dd>
+    </dl>
+    <label class="f">CAPA workflow — every NC walks these stages</label>
+    <dl style="grid-template-columns:150px 1fr">
+      <dt><span class="pill s-New">New</span></dt><dd>Raised and awaiting action.</dd>
+      <dt><span class="pill s-Containment">Containment</span></dt><dd>Immediate action to stop the problem from continuing or spreading.</dd>
+      <dt><span class="pill s-RootCause">Root Cause</span></dt><dd>Find why it happened — not who, why. 5-why, fishbone, whatever fits.</dd>
+      <dt><span class="pill s-CorrectiveAction">Corrective Action</span></dt><dd>Fix the root cause, not just the symptom. Preventive action stops recurrence elsewhere.</dd>
+      <dt><span class="pill s-Verification">Verification</span></dt><dd>An NC admin independently confirms the action worked, with evidence.</dd>
+      <dt><span class="pill s-Closed">Closed</span></dt><dd>Verified effective. Only an NC admin can close (or cancel) an NC.</dd>
+    </dl>
+  </div>
+</div></div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://auth.mrdc-htra.com/htra-auth.js" data-app="NC"></script>
+<script>
+const API = '/api/ncs';
+const TERMINAL = ['Closed','Cancelled'];
+let ALL = [], CUR = null, STATS = null, USER = null, IS_ADMIN = false, CAN_WORK = false;
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const today = () => new Date().toISOString().slice(0,10);
+function toast(m){ const t=$('#toast'); t.textContent=m; t.classList.add('on'); setTimeout(()=>t.classList.remove('on'),2600); }
+const isOpen = n => !TERMINAL.includes(n.Status || 'New');
+const isOverdue = n => isOpen(n) && n['Due Date'] && n['Due Date'] < today();
+const pill = (v, pre) => v ? `<span class="pill ${pre}${String(v).replace(/\s/g,'')}">${esc(v)}</span>` : '<span class="muted">—</span>';
+const authHeaders = () => ({ 'Content-Type':'application/json',
+  'x-user-role': (USER && USER.role) || '', 'x-app-role': (USER && USER.appRole) || '',
+  'x-user-id': (USER && USER.employeeId) || '', 'x-user-name': (USER && USER.name) || '' });
+
+async function load(params = {}) {
+  const p = new URLSearchParams(params);
+  const r = await fetch(`${API}?${p}`);
+  const j = await r.json();
+  if (!j.ok) throw new Error(j.error || 'load failed');
+  return j.records || [];
+}
+
+function renderKpis(){
+  const s = STATS;
+  $('#kpis').innerHTML = ['open','overdue','major','closed'].map(()=>'' ).join('') || '';
+  $('#kpis').innerHTML = `
+    <div class="kpi" data-k="open"><b>${s?s.open.toLocaleString():'…'}</b><span>Open NCs</span></div>
+    <div class="kpi over" data-k="overdue"><b>${s?s.overdue.toLocaleString():'…'}</b><span>Overdue</span></div>
+    <div class="kpi major" data-k="major"><b>${s?s.majorOpen.toLocaleString():'…'}</b><span>Major open</span></div>
+    <div class="kpi done" data-k="closed"><b>${s?s.closed.toLocaleString():'…'}</b><span>Closed</span></div>`;
+  document.querySelectorAll('.kpi').forEach(k => k.onclick = () => {
+    const m = k.dataset.k;
+    $('#f-status').value = m==='open' ? 'open' : m==='overdue' ? 'overdue' : m==='closed' ? 'Closed' : 'open';
+    $('#f-class').value = m==='major' ? 'Major' : '';
+    applyFilters();
+  });
+}
+
+function renderRows(rows){
+  $('#rows').innerHTML = rows.length ? rows.map(n => `
+    <tr data-id="${n.id}">
+      <td><b>${esc(n['NC #']||'—')}</b><div class="small muted">${esc(n['Date Raised']||'')}</div></td>
+      <td>${pill(n.Status||'New','s-')}</td>
+      <td>${pill(n.Classification,'c-')}</td>
+      <td class="small">${esc(n.Source||'—')}<div class="muted">${esc(n['Source Reference']||'')}</div></td>
+      <td class="small">${esc(n['Standard / Clause']||'—')}</td>
+      <td class="small">${esc(String(n.Description||'').slice(0,110))}${String(n.Description||'').length>110?'…':''}</td>
+      <td class="small">${esc(n.Division||'—')}</td>
+      <td class="small">${esc(n['Responsible Person']||'—')}</td>
+      <td class="${isOverdue(n)?'overdue':''}">${esc(n['Due Date']||'—')}</td>
+    </tr>`).join('')
+    : `<tr><td colspan="9" class="empty">No non-conformances match.</td></tr>`;
+  document.querySelectorAll('#rows tr[data-id]').forEach(tr => tr.onclick = () => openNC(tr.dataset.id));
+}
+
+function cache(rows){ rows.forEach(r => { const i = ALL.findIndex(x=>x.id===r.id); if(i>=0) ALL[i]=r; else ALL.push(r); }); return rows; }
+
+async function applyFilters(){
+  const f = {};
+  const s=$('#f-status').value, c=$('#f-class').value, so=$('#f-source').value, d=$('#f-division').value, q=$('#f-q').value.trim();
+  if(s) f.status=s; if(c) f.classification=c; if(so) f.source=so; if(d) f.division=d; if(q) f.q=q;
+  f.limit = 500;
+  try{
+    const rows = cache(await load(f));
+    $('#list-count').textContent = `${rows.length} shown`;
+    renderRows(rows);
+  }catch(e){ toast('Could not load NCs — ' + e.message); }
+}
+
+// ---------- detail ----------
+const setV = (id, v) => { $(id).value = v ?? ''; };
+function openNC(id){
+  const n = ALL.find(x => x.id === id); if(!n) return;
+  CUR = n;
+  $('#d-title').textContent = n['NC #'] || 'NC';
+  $('#d-sub').textContent = [n.Source, n['Source Reference'], n['Standard / Clause']].filter(Boolean).join(' · ');
+  $('#d-facts').innerHTML = `
+    <dt>Raised</dt><dd>${esc(n['Date Raised']||'—')} by ${esc(n['Raised By']||'—')}</dd>
+    <dt>Source</dt><dd>${esc(n.Source||'—')}${n['Source Reference']?` · ${esc(n['Source Reference'])}`:''}</dd>
+    <dt>Requirement</dt><dd>${esc(n.Requirement||'—')}</dd>
+    <dt>Description</dt><dd>${esc(n.Description||'—')}</dd>
+    ${n['Attachment URLs'] ? `<dt>Attachments</dt><dd>${String(n['Attachment URLs']).split(/\n+/).filter(Boolean).map((u,i)=>`<a href="${encodeURI(u)}" target="_blank" rel="noopener">file ${i+1}</a>`).join(' · ')}</dd>` : ''}`;
+  setV('#d-status', n.Status || 'New'); setV('#d-class', n.Classification);
+  setV('#d-due', n['Due Date']); setV('#d-division', n.Division); setV('#d-resp', n['Responsible Person']);
+  setV('#d-contain', n['Containment Action']); setV('#d-root', n['Root Cause']);
+  setV('#d-corrective', n['Corrective Action']); setV('#d-preventive', n['Preventive Action']);
+  setV('#d-done', n['Date Action Completed']);
+  setV('#d-verby', n['Verified By']); setV('#d-verdate', n['Date Verified']);
+  setV('#d-vernotes', n['Verification Notes']); setV('#d-closed', n['Date Closed']);
+  $('#d-log').textContent = n['Activity Log'] || '—';
+  // gate the controls
+  const editable = CAN_WORK;
+  document.querySelectorAll('#dv select, #dv textarea, #dv input:not(#d-comment)').forEach(el => el.disabled = !editable);
+  $('#d-verifybox').style.display = '';
+  document.querySelectorAll('#d-verifybox input, #d-verifybox textarea').forEach(el => el.disabled = !IS_ADMIN);
+  $('#d-save').style.display = editable ? '' : 'none';
+  $('#d-comment').disabled = !CAN_WORK; $('#d-addcomment').disabled = !CAN_WORK;
+  $('#dv').classList.add('on');
+}
+
+async function saveNC(){
+  if(!CUR) return;
+  const fields = {
+    'Status': $('#d-status').value, 'Classification': $('#d-class').value || null,
+    'Due Date': $('#d-due').value || null, 'Division': $('#d-division').value || null,
+    'Responsible Person': $('#d-resp').value,
+    'Containment Action': $('#d-contain').value, 'Root Cause': $('#d-root').value,
+    'Corrective Action': $('#d-corrective').value, 'Preventive Action': $('#d-preventive').value,
+    'Date Action Completed': $('#d-done').value || null,
+  };
+  if (IS_ADMIN) Object.assign(fields, {
+    'Verified By': $('#d-verby').value, 'Date Verified': $('#d-verdate').value || null,
+    'Verification Notes': $('#d-vernotes').value, 'Date Closed': $('#d-closed').value || null,
+  });
+  const btn=$('#d-save'); btn.disabled=true; btn.textContent='Saving…';
+  try{
+    const r = await fetch(API, { method:'PATCH', headers: authHeaders(), body: JSON.stringify({ id: CUR.id, fields }) });
+    const j = await r.json();
+    if(!j.ok) throw new Error(j.error||'save failed');
+    cache([j.record]); toast(`Saved ${j.record['NC #']}`);
+    $('#dv').classList.remove('on'); applyFilters(); refreshStats();
+  }catch(e){ toast('Not saved — ' + e.message); }
+  finally{ btn.disabled=false; btn.textContent='Save changes'; }
+}
+
+async function addComment(){
+  const text = $('#d-comment').value.trim(); if(!text || !CUR) return;
+  try{
+    const r = await fetch(API, { method:'POST', headers: authHeaders(), body: JSON.stringify({ action:'comment', id: CUR.id, text }) });
+    const j = await r.json();
+    if(!j.ok) throw new Error(j.error||'failed');
+    cache([j.record]); $('#d-log').textContent = j.record['Activity Log'] || '—';
+    $('#d-comment').value=''; toast('Comment added');
+  }catch(e){ toast('Comment failed — ' + e.message); }
+}
+
+// ---------- new NC ----------
+function openNew(){
+  ['#n-ref','#n-clause','#n-resp','#n-req','#n-desc'].forEach(id=>$(id).value='');
+  $('#n-date').value = today(); $('#n-due').value=''; $('#n-division').value='';
+  $('#n-source').value='Quality Audit'; $('#n-class').value='Minor';
+  $('#nv').classList.add('on');
+}
+async function submitNew(){
+  const desc = $('#n-desc').value.trim();
+  if(!desc){ toast('A description of the non-conformance is required'); return; }
+  const fields = {
+    'Source': $('#n-source').value, 'Source Reference': $('#n-ref').value,
+    'Classification': $('#n-class').value, 'Date Raised': $('#n-date').value || null,
+    'Division': $('#n-division').value || null, 'Due Date': $('#n-due').value || null,
+    'Standard / Clause': $('#n-clause').value, 'Responsible Person': $('#n-resp').value,
+    'Requirement': $('#n-req').value, 'Description': desc,
+  };
+  const btn=$('#n-save'); btn.disabled=true; btn.textContent='Raising…';
+  try{
+    const r = await fetch(API, { method:'POST', headers: authHeaders(), body: JSON.stringify({ fields }) });
+    const j = await r.json();
+    if(!j.ok) throw new Error(j.error||'failed');
+    toast(`${j.record['NC #']} raised`);
+    $('#nv').classList.remove('on');
+    cache([j.record]); applyFilters(); refreshStats();
+  }catch(e){ toast('Could not raise NC — ' + e.message); }
+  finally{ btn.disabled=false; btn.textContent='Raise NC'; }
+}
+
+async function refreshStats(){
+  try{ const r = await fetch(`${API}?stats=1`); const j = await r.json(); if(j.ok){ STATS=j.stats; renderKpis(); } }catch(_){}
+}
+
+// ---------- wiring ----------
+$('#f-go').onclick = applyFilters;
+$('#f-clear').onclick = () => { $('#f-status').value='open'; $('#f-class').value=''; $('#f-source').value=''; $('#f-division').value=''; $('#f-q').value=''; applyFilters(); };
+$('#f-q').addEventListener('keydown', e => { if(e.key==='Enter') applyFilters(); });
+$('#g-go').onclick = () => { $('#f-q').value = $('#g-q').value; $('#f-status').value=''; applyFilters(); };
+$('#g-q').addEventListener('keydown', e => { if(e.key==='Enter') $('#g-go').click(); });
+$('#g-new').onclick = openNew;
+$('#g-help').onclick = () => $('#hv').classList.add('on');
+$('#d-x').onclick = $('#d-cancel').onclick = () => $('#dv').classList.remove('on');
+$('#n-x').onclick = $('#n-cancel').onclick = () => $('#nv').classList.remove('on');
+$('#h-x').onclick = () => $('#hv').classList.remove('on');
+$('#d-save').onclick = saveNC;
+$('#d-addcomment').onclick = addComment;
+$('#d-comment').addEventListener('keydown', e => { if(e.key==='Enter') addComment(); });
+['dv','nv','hv'].forEach(id => $('#'+id).addEventListener('click', e => { if(e.target.id===id) $('#'+id).classList.remove('on'); }));
+
+(async function init(){
+  let user = null;
+  if (window.HTRA && HTRA.requireSession) {
+    user = await HTRA.requireSession();
+    if (!user) return;
+  }
+  USER = user || {};
+  IS_ADMIN = USER.role === 'Admin' || USER.role === 'Owner' || USER.appRole === 'Admin';
+  CAN_WORK = IS_ADMIN || USER.appRole === 'Manager' || USER.role === 'Manager';
+  if (CAN_WORK) $('#g-new').style.display = '';
+  const who = document.createElement('div');
+  who.style.cssText = 'margin-left:auto;text-align:right;font-size:12.5px;color:rgba(255,255,255,.85)';
+  who.innerHTML = `${esc(USER.name || USER.email || 'Signed in')} · <a href="#" id="signout" style="color:#fff;text-decoration:underline">Sign out</a>`;
+  document.querySelector('.brand').appendChild(who);
+  document.getElementById('signout').onclick = e => { e.preventDefault(); HTRA.logout(); };
+
+  refreshStats();
+  applyFilters();
+  const p = new URLSearchParams(location.search);
+  if (p.get('nc')) {
+    const hit = cache(await load({ nc: p.get('nc'), limit: 1 }));
+    if (hit.length) openNC(hit[0].id);
+  }
+  if (p.get('new') && CAN_WORK) openNew();
+})();
+</script>
+<script src="https://www.mrdc-htra.com/app-switcher.js"></script>
+</body>
+</html>
