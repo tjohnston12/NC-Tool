@@ -199,7 +199,21 @@ module.exports = async (req, res) => {
       for (const [k, v] of Object.entries(incoming)) {
         if (MANAGER_FIELDS.has(k) || (isAdmin && ADMIN_FIELDS.has(k))) fields[k] = v;
       }
-      fields['NC #'] = await nextNcNumber();
+      // NC number convention: an EXTERNALLY issued NC keeps its own NCN number
+      // (provincial / ISO / client auditors issue these — that number is how
+      // everyone references it, same principle as the DMT's Submission ID).
+      // Internal NCs get the next NC-YYYY-NNN automatically.
+      const providedNcn = String(incoming['NC #'] || '').trim();
+      if (providedNcn) {
+        const dup = await at(`${AT}?maxRecords=1&filterByFormula=${encodeURIComponent(`{NC #}='${esc(providedNcn)}'`)}`);
+        if ((dup.records || []).length) {
+          res.status(409).json({ ok: false, error: `An NC with number "${providedNcn}" already exists` });
+          return;
+        }
+        fields['NC #'] = providedNcn;
+      } else {
+        fields['NC #'] = await nextNcNumber();
+      }
       fields['Status'] = fields['Status'] && STATUSES.includes(fields['Status']) ? fields['Status'] : 'New';
       if (!fields['Date Raised']) fields['Date Raised'] = today();
       if (!fields['Raised By']) fields['Raised By'] = userName;

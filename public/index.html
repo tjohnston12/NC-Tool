@@ -173,6 +173,8 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
       <div class="fieldrow"><label class="f">Classification</label>
         <select id="n-class"><option>Major</option><option>Minor</option><option>OFI</option></select></div>
     </div>
+    <div class="fieldrow"><label class="f">NCN number <span style="text-transform:none;font-weight:400;color:var(--muted)" id="n-ncn-hint">— issued by the external auditor; leave blank for internal NCs (auto-assigned NC-YYYY-NNN)</span></label>
+      <input id="n-ncn" type="text" placeholder="e.g. the NCN on the provincial / ISO report" style="max-width:360px"></div>
     <div class="grid3">
       <div class="fieldrow"><label class="f">Date raised</label><input type="date" id="n-date"></div>
       <div class="fieldrow"><label class="f">Division</label>
@@ -357,7 +359,7 @@ async function addComment(){
 
 // ---------- new NC ----------
 function openNew(){
-  ['#n-ref','#n-clause','#n-resp','#n-req','#n-desc'].forEach(id=>$(id).value='');
+  ['#n-ref','#n-ncn','#n-clause','#n-resp','#n-req','#n-desc'].forEach(id=>$(id).value='');
   $('#n-date').value = today(); $('#n-due').value=''; $('#n-division').value='';
   $('#n-source').value='Quality Audit'; $('#n-class').value='Minor';
   $('#nv').classList.add('on');
@@ -366,6 +368,7 @@ async function submitNew(){
   const desc = $('#n-desc').value.trim();
   if(!desc){ toast('A description of the non-conformance is required'); return; }
   const fields = {
+    'NC #': $('#n-ncn').value.trim(),
     'Source': $('#n-source').value, 'Source Reference': $('#n-ref').value,
     'Classification': $('#n-class').value, 'Date Raised': $('#n-date').value || null,
     'Division': $('#n-division').value || null, 'Due Date': $('#n-due').value || null,
@@ -395,6 +398,12 @@ $('#f-q').addEventListener('keydown', e => { if(e.key==='Enter') applyFilters();
 $('#g-go').onclick = () => { $('#f-q').value = $('#g-q').value; $('#f-status').value=''; applyFilters(); };
 $('#g-q').addEventListener('keydown', e => { if(e.key==='Enter') $('#g-go').click(); });
 $('#g-new').onclick = openNew;
+$('#n-source').addEventListener('change', () => {
+  const external = ['Provincial Audit','ISO Audit','Client / Contract'].includes($('#n-source').value);
+  $('#n-ncn-hint').textContent = external
+    ? '— enter the NCN exactly as issued on the external report'
+    : '— issued by the external auditor; leave blank for internal NCs (auto-assigned NC-YYYY-NNN)';
+});
 $('#g-help').onclick = () => $('#hv').classList.add('on');
 $('#d-x').onclick = $('#d-cancel').onclick = () => $('#dv').classList.remove('on');
 $('#n-x').onclick = $('#n-cancel').onclick = () => $('#nv').classList.remove('on');
