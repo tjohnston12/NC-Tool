@@ -35,6 +35,16 @@ main{max-width:1180px;margin:0 auto;padding:16px 20px 60px}
 .srctile b{font-size:24px;display:block;line-height:1.15}
 .srctile em{font-style:normal;font-size:12px;color:var(--muted)}
 .srctile.prov{border-left-color:var(--navy)} .srctile.int{border-left-color:var(--wine)}
+.stdcard{background:#fff;border:1px solid var(--line);border-radius:10px;margin-bottom:14px;padding:12px 16px}
+.stdcard h2{font-size:13px;margin:0 0 10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--navy)}
+.stdbars{display:grid;grid-template-columns:1fr 1fr;gap:4px 22px}
+@media(max-width:720px){.stdbars{grid-template-columns:1fr}}
+.stdrow{display:flex;align-items:center;gap:10px;font-size:12.5px;cursor:pointer;padding:2px 0}
+.stdrow:hover .stdname{color:var(--navy)}
+.stdname{width:210px;flex:none;color:#333;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stdbar{flex:1;height:12px;background:#EEF0F4;border-radius:4px;overflow:hidden}
+.stdbar>i{display:block;height:100%;background:var(--navy);border-radius:4px}
+.stdn{width:38px;text-align:right;font-variant-numeric:tabular-nums;font-weight:700;color:#333}
 .card{background:#fff;border:1px solid var(--line);border-radius:10px;margin-bottom:14px}
 .card h2{font-size:15px;margin:0;padding:13px 16px;border-bottom:1px solid var(--line)}
 .card h2 small{font-weight:400;color:var(--muted);font-size:12px;margin-left:8px}
@@ -74,6 +84,19 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
 .stage{border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:12px}
 .stage h3{margin:0 0 10px;font-size:13px;color:var(--navy);text-transform:uppercase;letter-spacing:.5px}
 .stage.admin{border-color:#D9C2CE;background:#FBF7F9}
+.stage.respond{border-color:#C9D6E8;background:#F6F9FD}
+.respond-meta{font-size:12.5px;color:var(--muted);margin-bottom:12px}
+.prio{display:inline-block;font-size:11px;font-weight:700;padding:1px 9px;border-radius:20px}
+.prio-Urgent{background:#FBE9E9;color:var(--bad)} .prio-Important{background:#FDF0DD;color:var(--amber)} .prio-Medium{background:#FDF6DD;color:#8A6A00} .prio-Low{background:#EEF0F4;color:#667}
+.checklist{display:flex;flex-direction:column;gap:8px}
+.checkitem{display:flex;align-items:center;gap:10px;font-size:13.5px}
+.checkitem input{width:17px;height:17px;flex:none}
+.checkitem.done label{color:var(--good)}
+.thumbs{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
+.thumbs a,.thumbs .thumb-pending{display:flex;align-items:center;justify-content:center;width:64px;height:64px;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:#fff;font-size:10.5px;color:var(--muted);text-decoration:none;text-align:center}
+.thumbs img{width:64px;height:64px;object-fit:cover}
+.photo-btn{display:inline-flex;align-items:center;gap:6px;margin-top:10px;padding:8px 14px;border:1px dashed var(--navy);border-radius:8px;color:var(--navy);font-size:13px;font-weight:600;cursor:pointer;background:#fff}
+.photo-btn.disabled{opacity:.5;pointer-events:none}
 .log{background:#F7F8FB;border:1px solid var(--line);border-radius:8px;padding:10px 12px;font-size:12.5px;white-space:pre-wrap;max-height:180px;overflow:auto}
 .btnrow{display:flex;gap:10px;justify-content:flex-end;padding:14px 22px;border-top:1px solid var(--line);flex-wrap:wrap}
 .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:#16181D;color:#fff;padding:10px 18px;border-radius:8px;font-size:13.5px;opacity:0;pointer-events:none;transition:opacity .25s;z-index:3000;max-width:90vw}
@@ -98,6 +121,7 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
 <main>
   <div class="srcsplit" id="srcsplit"></div>
   <div class="kpis" id="kpis"></div>
+  <div class="stdcard" id="stdcard" style="display:none"><h2>By OMM standard</h2><div class="stdbars" id="stdbars"></div></div>
   <div class="card">
     <div class="filters">
       <select id="f-status">
@@ -110,6 +134,7 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
       <select id="f-class"><option value="">Any class</option><option>Major</option><option>Minor</option><option>OFI</option></select>
       <select id="f-source"><option value="">Any source</option><option>Quality Audit</option><option>Provincial Audit</option><option>ISO Audit</option><option>Internal Audit</option><option>Client / Contract</option><option>Other</option></select>
       <select id="f-division"><option value="">All divisions</option><option>Western</option><option>Eastern</option><option>Head Office</option></select>
+      <select id="f-standard"><option value="">Any OMM standard</option></select>
       <input type="text" id="f-q" placeholder="keywords — clause, description, responsible…">
       <button class="btn sm" id="f-go">Filter</button>
       <button class="btn sm ghost" id="f-clear">Clear</button>
@@ -140,6 +165,11 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
         <select id="d-division"><option value=""></option><option>Western</option><option>Eastern</option><option>Head Office</option></select></div>
       <div class="fieldrow"><label class="f">Responsible person</label><input id="d-resp" type="text"></div>
     </div>
+    <div class="grid2">
+      <div class="fieldrow"><label class="f">Priority</label>
+        <select id="d-priority"><option value=""></option><option>Urgent</option><option>Important</option><option>Medium</option><option>Low</option></select></div>
+      <div class="fieldrow"><label class="f">Reviewers <span style="text-transform:none;font-weight:400;color:var(--muted)">— emailed to review; separate names with ;</span></label><input id="d-reviewers" type="text"></div>
+    </div>
 
     <div class="stage"><h3>Containment — immediate action</h3>
       <div class="fieldrow"><textarea id="d-contain" placeholder="What was done right away to contain the problem…"></textarea></div></div>
@@ -157,6 +187,16 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
         <div class="fieldrow"><label class="f">Date closed</label><input type="date" id="d-closed"></div>
       </div>
       <div class="fieldrow"><label class="f">Verification notes (evidence of effectiveness)</label><textarea id="d-vernotes"></textarea></div></div>
+
+    <div class="stage respond" id="d-respondbox"><h3>Respond — corrective response &amp; evidence</h3>
+      <div class="respond-meta" id="d-respond-meta"></div>
+      <label class="f">Response checklist</label>
+      <div class="checklist" id="d-checklist"></div>
+      <label class="f" style="margin-top:14px">Response files &amp; photos of repairs</label>
+      <div class="thumbs" id="d-respondfiles"></div>
+      <label class="photo-btn" id="d-upload-label"><input type="file" id="d-respond-file" accept="image/*,application/pdf" multiple hidden> + Add files / photos</label>
+      <div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn wine" id="d-respond-save" style="display:none">Save response</button></div>
+    </div>
 
     <div class="fieldrow"><label class="f">Add a comment</label>
       <div style="display:flex;gap:8px"><input id="d-comment" type="text" placeholder="Stamped into the activity log…" style="flex:1;padding:8px 10px;border:1px solid var(--line);border-radius:8px">
@@ -231,6 +271,9 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
 const API = '/api/ncs';
 const TERMINAL = ['Closed','Cancelled'];
 let ALL = [], CUR = null, STATS = null, USER = null, IS_ADMIN = false, CAN_WORK = false;
+const CLOUD_NAME = 'djrqifos6', UPLOAD_PRESET = 'uzh72cqd';
+const CHECKLIST_ITEMS = ['Non-Conformance Corrected','Risk Analysis Performed','Reviewed to prevent re-occurrence','Reviewed by General Manager','Response Sheet Completed'];
+let RESP_FILES = [], RESP_CHECK = {}, CAN_RESPOND = false;
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -284,6 +327,30 @@ function renderSrc(){
   });
 }
 
+function renderStandards(){
+  const bs = STATS && STATS.byStandard;
+  if (!bs) return;
+  const arr = Object.values(bs).sort((a,b)=>{
+    if (a.code==='__OTHER__') return 1; if (b.code==='__OTHER__') return -1;
+    return (+a.code.slice(4)) - (+b.code.slice(4));
+  });
+  const sel = $('#f-standard'), cur = sel.value;
+  sel.innerHTML = '<option value="">Any OMM standard</option>' + arr.map(o =>
+    `<option value="${o.code}">${o.code==='__OTHER__'?'Other / non-OMM':esc(o.label)} (${o.count})</option>`).join('');
+  sel.value = cur;
+  const max = Math.max(...arr.map(o=>o.count), 1);
+  $('#stdbars').innerHTML = arr.slice().sort((a,b)=>b.count-a.count).map(o=>`
+    <div class="stdrow" data-code="${o.code}" title="${esc(o.label)}">
+      <span class="stdname">${o.code==='__OTHER__'?'Other / non-OMM':esc(o.label)}</span>
+      <span class="stdbar"><i style="width:${Math.max(o.count/max*100,2)}%"></i></span>
+      <span class="stdn">${o.count.toLocaleString()}</span>
+    </div>`).join('');
+  document.querySelectorAll('#stdbars .stdrow').forEach(r => r.onclick = () => {
+    $('#f-standard').value = r.dataset.code; $('#f-status').value=''; applyFilters();
+  });
+  $('#stdcard').style.display = arr.length ? '' : 'none';
+}
+
 function renderRows(rows){
   $('#rows').innerHTML = rows.length ? rows.map(n => `
     <tr data-id="${n.id}">
@@ -306,7 +373,8 @@ function cache(rows){ rows.forEach(r => { const i = ALL.findIndex(x=>x.id===r.id
 async function applyFilters(){
   const f = {};
   const s=$('#f-status').value, c=$('#f-class').value, so=$('#f-source').value, d=$('#f-division').value, q=$('#f-q').value.trim();
-  if(s) f.status=s; if(c) f.classification=c; if(so) f.source=so; if(d) f.division=d; if(q) f.q=q;
+  const std=$('#f-standard').value;
+  if(s) f.status=s; if(c) f.classification=c; if(so) f.source=so; if(d) f.division=d; if(std) f.standard=std; if(q) f.q=q;
   f.limit = 500;
   try{
     const rows = cache(await load(f));
@@ -330,6 +398,7 @@ function openNC(id){
     ${n['Attachment URLs'] ? `<dt>Attachments</dt><dd>${String(n['Attachment URLs']).split(/\n+/).filter(Boolean).map((u,i)=>`<a href="${encodeURI(u)}" target="_blank" rel="noopener">file ${i+1}</a>`).join(' · ')}</dd>` : ''}`;
   setV('#d-status', n.Status || 'New'); setV('#d-class', n.Classification);
   setV('#d-due', n['Due Date']); setV('#d-division', n.Division); setV('#d-resp', n['Responsible Person']);
+  setV('#d-priority', n.Priority); setV('#d-reviewers', n['Reviewers']);
   setV('#d-contain', n['Containment Action']); setV('#d-root', n['Root Cause']);
   setV('#d-corrective', n['Corrective Action']); setV('#d-preventive', n['Preventive Action']);
   setV('#d-done', n['Date Action Completed']);
@@ -343,6 +412,31 @@ function openNC(id){
   document.querySelectorAll('#d-verifybox input, #d-verifybox textarea').forEach(el => el.disabled = !IS_ADMIN);
   $('#d-save').style.display = editable ? '' : 'none';
   $('#d-comment').disabled = !CAN_WORK; $('#d-addcomment').disabled = !CAN_WORK;
+  // ---- Respond section ----
+  const uname = String(USER.name || '').toLowerCase();
+  const respNm = String(n['Responsible Person'] || '').toLowerCase();
+  CAN_RESPOND = CAN_WORK || (!!uname && !!respNm && respNm.includes(uname));
+  const prio = n['Priority'];
+  $('#d-respond-meta').innerHTML = [
+    prio ? `<span class="prio prio-${String(prio).replace(/\s/g,'')}">${esc(prio)}</span>` : '',
+    n['Responsible Person'] ? `Responsible: <b>${esc(n['Responsible Person'])}</b>` : '',
+    n['Reviewers'] ? `Reviewers: ${esc(String(n['Reviewers']).replace(/;+/g,', '))}` : ''
+  ].filter(Boolean).join(' &nbsp;·&nbsp; ') || '<span class="muted">No responder assigned yet.</span>';
+  RESP_CHECK = {};
+  try{ const saved = JSON.parse(n['Response Checklist'] || '[]'); if(Array.isArray(saved)) saved.forEach(o => { if(o && o.item) RESP_CHECK[o.item] = !!o.done; }); }catch(_){}
+  $('#d-checklist').innerHTML = CHECKLIST_ITEMS.map((it,i) => `
+    <div class="checkitem${RESP_CHECK[it] ? ' done' : ''}">
+      <input type="checkbox" id="chk-${i}" ${RESP_CHECK[it] ? 'checked' : ''} ${CAN_RESPOND ? '' : 'disabled'}>
+      <label for="chk-${i}">${esc(it)}</label>
+    </div>`).join('');
+  document.querySelectorAll('#d-checklist input').forEach((el,i) => el.onchange = () => {
+    RESP_CHECK[CHECKLIST_ITEMS[i]] = el.checked; el.closest('.checkitem').classList.toggle('done', el.checked);
+  });
+  RESP_FILES = String(n['Response Files'] || '').split(/\n+/).map(s => s.trim()).filter(Boolean);
+  renderRespFiles();
+  $('#d-upload-label').classList.toggle('disabled', !CAN_RESPOND);
+  $('#d-respond-file').disabled = !CAN_RESPOND;
+  $('#d-respond-save').style.display = CAN_RESPOND ? '' : 'none';
   $('#dv').classList.add('on');
 }
 
@@ -352,6 +446,7 @@ async function saveNC(){
     'Status': $('#d-status').value, 'Classification': $('#d-class').value || null,
     'Due Date': $('#d-due').value || null, 'Division': $('#d-division').value || null,
     'Responsible Person': $('#d-resp').value,
+    'Priority': $('#d-priority').value || null, 'Reviewers': $('#d-reviewers').value,
     'Containment Action': $('#d-contain').value, 'Root Cause': $('#d-root').value,
     'Corrective Action': $('#d-corrective').value, 'Preventive Action': $('#d-preventive').value,
     'Date Action Completed': $('#d-done').value || null,
@@ -412,13 +507,40 @@ async function submitNew(){
   finally{ btn.disabled=false; btn.textContent='Raise NC'; }
 }
 
+async function uploadRespondFile(file){
+  const fd = new FormData();
+  fd.append('file', file); fd.append('upload_preset', UPLOAD_PRESET); fd.append('folder', 'nc-responses');
+  const r = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/auto/upload`, { method:'POST', body:fd });
+  const j = await r.json().catch(()=>({}));
+  if(!r.ok || !j.secure_url) throw new Error((j.error && j.error.message) || ('Upload failed ('+r.status+')'));
+  return j.secure_url;
+}
+function renderRespFiles(){
+  $('#d-respondfiles').innerHTML = RESP_FILES.map(u => {
+    const isImg = /\.(jpe?g|png|gif|webp|heic)(\?|$)/i.test(u);
+    return `<a href="${encodeURI(u)}" target="_blank" rel="noopener">${isImg ? `<img src="${u}">` : 'file'}</a>`;
+  }).join('') || '<span class="muted small">No response files yet.</span>';
+}
+async function saveResponse(){
+  if(!CUR) return;
+  const checklist = CHECKLIST_ITEMS.map(it => ({ item: it, done: !!RESP_CHECK[it] }));
+  const fields = { 'Response Checklist': JSON.stringify(checklist), 'Response Files': RESP_FILES.join('\n') };
+  const btn = $('#d-respond-save'); btn.disabled = true; btn.textContent = 'Saving…';
+  try{
+    const r = await fetch(API, { method:'PATCH', headers: authHeaders(), body: JSON.stringify({ id: CUR.id, fields }) });
+    const j = await r.json(); if(!j.ok) throw new Error(j.error || 'save failed');
+    cache([j.record]); toast('Response saved');
+  }catch(e){ toast('Not saved — ' + e.message); }
+  finally{ btn.disabled = false; btn.textContent = 'Save response'; }
+}
+
 async function refreshStats(){
-  try{ const r = await fetch(`${API}?stats=1`); const j = await r.json(); if(j.ok){ STATS=j.stats; renderKpis(); renderSrc(); } }catch(_){}
+  try{ const r = await fetch(`${API}?stats=1`); const j = await r.json(); if(j.ok){ STATS=j.stats; renderKpis(); renderSrc(); renderStandards(); } }catch(_){}
 }
 
 // ---------- wiring ----------
 $('#f-go').onclick = applyFilters;
-$('#f-clear').onclick = () => { $('#f-status').value='open'; $('#f-class').value=''; $('#f-source').value=''; $('#f-division').value=''; $('#f-q').value=''; applyFilters(); };
+$('#f-clear').onclick = () => { $('#f-status').value='open'; $('#f-class').value=''; $('#f-source').value=''; $('#f-division').value=''; $('#f-standard').value=''; $('#f-q').value=''; applyFilters(); };
 $('#f-q').addEventListener('keydown', e => { if(e.key==='Enter') applyFilters(); });
 $('#g-go').onclick = () => { $('#f-q').value = $('#g-q').value; $('#f-status').value=''; applyFilters(); };
 $('#g-q').addEventListener('keydown', e => { if(e.key==='Enter') $('#g-go').click(); });
@@ -434,6 +556,15 @@ $('#d-x').onclick = $('#d-cancel').onclick = () => $('#dv').classList.remove('on
 $('#n-x').onclick = $('#n-cancel').onclick = () => $('#nv').classList.remove('on');
 $('#h-x').onclick = () => $('#hv').classList.remove('on');
 $('#d-save').onclick = saveNC;
+$('#d-respond-save').onclick = saveResponse;
+$('#d-respond-file').addEventListener('change', async e => {
+  const files = [...e.target.files]; e.target.value = '';
+  for(const file of files){
+    const ph = document.createElement('div'); ph.className = 'thumb-pending'; ph.textContent = '…'; $('#d-respondfiles').appendChild(ph);
+    try{ const url = await uploadRespondFile(file); RESP_FILES.push(url); renderRespFiles(); }
+    catch(err){ ph.textContent = '!'; ph.title = err.message; }
+  }
+});
 $('#d-addcomment').onclick = addComment;
 $('#d-comment').addEventListener('keydown', e => { if(e.key==='Enter') addComment(); });
 ['dv','nv','hv'].forEach(id => $('#'+id).addEventListener('click', e => { if(e.target.id===id) $('#'+id).classList.remove('on'); }));

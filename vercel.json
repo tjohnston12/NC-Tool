@@ -1,0 +1,5 @@
+{
+  "crons": [
+    { "path": "/api/nc-digest", "schedule": "0 11 * * 1" }
+  ]
+}
