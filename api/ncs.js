@@ -106,6 +106,7 @@ async function list(qs) {
 
 async function stats() {
   const acc = { total: 0, open: 0, overdue: 0, majorOpen: 0, closed: 0,
+    provincial: { total: 0, open: 0 }, internal: { total: 0, open: 0 },
     bySource: {}, byClassification: {}, byDivision: {}, byStatus: {} };
   const t = today();
   let offset;
@@ -120,6 +121,10 @@ async function stats() {
       const st = f['Status'] || 'New';
       acc.total++;
       acc.byStatus[st] = (acc.byStatus[st] || 0) + 1;
+      // Provincial vs Internal split — strictly by audit Source (other sources in neither)
+      const src = f['Source'];
+      if (src === 'Provincial Audit') { acc.provincial.total++; if (!TERMINAL.includes(st)) acc.provincial.open++; }
+      else if (src === 'Internal Audit') { acc.internal.total++; if (!TERMINAL.includes(st)) acc.internal.open++; }
       if (!TERMINAL.includes(st)) {
         acc.open++;
         if (f['Due Date'] && f['Due Date'] < t) acc.overdue++;
