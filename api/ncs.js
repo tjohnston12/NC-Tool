@@ -212,6 +212,30 @@ async function emailsForNames(names) {
   return out;
 }
 
+// Active managers (for the Responsible Person picker) — read from the Employees base.
+async function managers() {
+  const out = [];
+  let offset;
+  const formula = "AND({Active}='Active',OR({Role}='Manager',FIND('Manager',ARRAYJOIN({Job Title}))))";
+  do {
+    const p = new URLSearchParams();
+    p.set('pageSize', '100');
+    p.set('filterByFormula', formula);
+    ['Name', 'Email', 'Job Title'].forEach(f => p.append('fields[]', f));
+    if (offset) p.set('offset', offset);
+    const res = await fetch(`https://api.airtable.com/v0/${EMP_BASE}/${encodeURIComponent(EMP_TABLE)}?${p.toString()}`, { headers: HDR });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) break;
+    for (const r of (json.records || [])) {
+      const name = String(r.fields['Name'] || '').trim();
+      if (name) out.push({ name, title: [].concat(r.fields['Job Title'] || []).join(', '), email: r.fields['Email'] || '' });
+    }
+    offset = json.offset;
+  } while (offset);
+  out.sort((a, b) => a.name.localeCompare(b.name));
+  return out;
+}
+
 async function sendMail(to, subject, html) {
   if (!RESEND_KEY || !to) return false;
   try {
@@ -263,6 +287,11 @@ module.exports = async (req, res) => {
   try {
     if (req.method === 'GET') {
       const qs = req.query || {};
+      if (qs.managers === '1') {
+        res.setHeader('Cache-Control', 's-maxage=3600, stale-while-revalidate=86400');
+        res.status(200).json({ ok: true, managers: await managers() });
+        return;
+      }
       if (qs.stats === '1') {
         res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=600');
         res.status(200).json({ ok: true, stats: await stats() });

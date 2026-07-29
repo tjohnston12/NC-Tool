@@ -187,7 +187,7 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
     <div class="grid2">
       <div class="fieldrow"><label class="f">Division</label>
         <select id="d-division"><option value=""></option><option>Western</option><option>Eastern</option><option>Head Office</option></select></div>
-      <div class="fieldrow"><label class="f">Responsible person</label><input id="d-resp" type="text"></div>
+      <div class="fieldrow"><label class="f">Responsible person</label><select id="d-resp"></select></div>
     </div>
     <div class="grid2">
       <div class="fieldrow"><label class="f">Priority</label>
@@ -255,7 +255,7 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
     </div>
     <div class="grid2">
       <div class="fieldrow"><label class="f">Standard / clause violated</label><input id="n-clause" type="text" placeholder="ISO 9001 8.5.1 · OMM 706 · contract §4.2…"></div>
-      <div class="fieldrow"><label class="f">Responsible person</label><input id="n-resp" type="text"></div>
+      <div class="fieldrow"><label class="f">Responsible person</label><select id="n-resp"></select></div>
     </div>
     <div class="fieldrow"><label class="f">Requirement (what the standard requires)</label><textarea id="n-req"></textarea></div>
     <div class="fieldrow"><label class="f">Description of the non-conformance *</label><textarea id="n-desc" placeholder="What was found, where, and the evidence…"></textarea></div>
@@ -299,6 +299,7 @@ let ALL = [], CUR = null, STATS = null, USER = null, IS_ADMIN = false, CAN_WORK 
 const CLOUD_NAME = 'djrqifos6', UPLOAD_PRESET = 'uzh72cqd';
 const CHECKLIST_ITEMS = ['Non-Conformance Corrected','Risk Analysis Performed','Reviewed to prevent re-occurrence','Reviewed by General Manager','Response Sheet Completed'];
 let RESP_FILES = [], RESP_CHECK = {}, CAN_RESPOND = false;
+let MANAGERS = [];
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -317,6 +318,38 @@ async function load(params = {}) {
   const j = await r.json();
   if (!j.ok) throw new Error(j.error || 'load failed');
   return j.records || [];
+}
+
+// Normalize a link URL so already-encoded (%20) and raw (space) URLs both render correctly,
+// preventing double-encoding of the SharePoint links stored in Response Files / Attachment URLs.
+function linkUrl(u){ u = String(u || '').trim(); try { return encodeURI(decodeURI(u)); } catch(_){ return u.replace(/ /g,'%20'); } }
+
+async function loadManagers(){
+  try { const r = await fetch(`${API}?managers=1`); const j = await r.json(); if (j.ok) MANAGERS = j.managers || []; } catch(_){}
+}
+// Fill a Responsible-person <select> with the manager list, preserving any current value
+// (even a non-manager already on the record) so saving never silently drops it.
+function fillRespSelect(sel, current){
+  const cur = String(current || '').trim();
+  const names = MANAGERS.map(m => m.name);
+  let opts = '<option value=""></option>' + names.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
+  if (cur && !names.includes(cur)) opts += `<option value="${esc(cur)}">${esc(cur)} (current)</option>`;
+  sel.innerHTML = opts;
+  sel.value = cur;
+}
+// The provincial audit report PDF for this NC — from native Files or the SharePoint links.
+function noticePdf(n){
+  const nc = String(n['NC #'] || '');
+  const isPdf = s => /\.pdf(\?|$)/i.test(String(s || ''));
+  if (Array.isArray(n['Files'])) {
+    const hit = n['Files'].find(f => isPdf(f.filename || f.url) && nc && String(f.filename || '').includes(nc)) || n['Files'].find(f => isPdf(f.filename || f.url));
+    if (hit) return { url: hit.url, name: hit.filename || 'Audit report' };
+  }
+  const urls = String(n['Response Files'] || '').split(/\n+/).concat(String(n['Attachment URLs'] || '').split(/\n+/)).map(s => s.trim()).filter(Boolean);
+  const dec = u => { try { return decodeURIComponent(u); } catch(_){ return u; } };
+  const hit = urls.find(u => isPdf(u) && nc && dec(u).includes(nc)) || urls.find(isPdf);
+  if (hit) return { url: hit, name: 'Audit report (PDF)' };
+  return null;
 }
 
 function renderKpis(){
@@ -415,15 +448,17 @@ function openNC(id){
   CUR = n;
   $('#d-title').textContent = n['NC #'] || 'NC';
   $('#d-sub').textContent = [n.Source, n['Source Reference'], n['Standard / Clause']].filter(Boolean).join(' · ');
+  const _np = noticePdf(n);
   $('#d-facts').innerHTML = `
+    ${_np ? `<dt>Audit report</dt><dd><a href="${linkUrl(_np.url)}" target="_blank" rel="noopener" style="font-weight:700">📄 Open Provincial Audit Report (PDF)</a></dd>` : ''}
     <dt>Raised</dt><dd>${esc(n['Date Raised']||'—')} by ${esc(n['Raised By']||'—')}</dd>
     <dt>Source</dt><dd>${esc(n.Source||'—')}${n['Source Reference']?` · ${esc(n['Source Reference'])}`:''}</dd>
     <dt>Requirement</dt><dd>${esc(n.Requirement||'—')}</dd>
     <dt>Description</dt><dd>${esc(n.Description||'—')}</dd>
     ${Array.isArray(n['Files']) && n['Files'].length ? `<dt>Files</dt><dd>${n['Files'].map(f=>`<a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(f.filename||'file')}</a>`).join(' · ')}</dd>` : ''}
-    ${n['Attachment URLs'] ? `<dt>Links</dt><dd>${String(n['Attachment URLs']).split(/\n+/).filter(Boolean).map((u,i)=>`<a href="${encodeURI(u)}" target="_blank" rel="noopener">file ${i+1}</a>`).join(' · ')}</dd>` : ''}`;
+    ${n['Attachment URLs'] ? `<dt>Links</dt><dd>${String(n['Attachment URLs']).split(/\n+/).filter(Boolean).map((u,i)=>`<a href="${linkUrl(u)}" target="_blank" rel="noopener">file ${i+1}</a>`).join(' · ')}</dd>` : ''}`;
   setV('#d-status', n.Status || 'New'); setV('#d-class', n.Classification);
-  setV('#d-due', n['Due Date']); setV('#d-division', n.Division); setV('#d-resp', n['Responsible Person']);
+  setV('#d-due', n['Due Date']); setV('#d-division', n.Division); fillRespSelect($('#d-resp'), n['Responsible Person']);
   setV('#d-priority', n.Priority); setV('#d-reviewers', n['Reviewers']);
   setV('#d-contain', n['Containment Action']); setV('#d-root', n['Root Cause']);
   setV('#d-corrective', n['Corrective Action']); setV('#d-preventive', n['Preventive Action']);
@@ -507,7 +542,7 @@ async function addComment(){
 
 // ---------- new NC ----------
 function openNew(){
-  ['#n-ref','#n-ncn','#n-clause','#n-resp','#n-req','#n-desc'].forEach(id=>$(id).value='');
+  ['#n-ref','#n-ncn','#n-clause','#n-req','#n-desc'].forEach(id=>$(id).value=''); fillRespSelect($('#n-resp'), '');
   $('#n-date').value = today(); $('#n-due').value=''; $('#n-division').value='';
   $('#n-source').value='Quality Audit'; $('#n-class').value='Minor';
   $('#nv').classList.add('on');
@@ -545,8 +580,12 @@ async function uploadRespondFile(file){
 }
 function renderRespFiles(){
   $('#d-respondfiles').innerHTML = RESP_FILES.map(u => {
-    const isImg = /\.(jpe?g|png|gif|webp|heic)(\?|$)/i.test(u);
-    return `<a href="${encodeURI(u)}" target="_blank" rel="noopener">${isImg ? `<img src="${u}">` : 'file'}</a>`;
+    const cloud = /res\.cloudinary\.com/.test(u);
+    const isImg = cloud && /\.(jpe?g|png|gif|webp)(\?|$)/i.test(u);
+    let label = 'file';
+    try { const m = decodeURIComponent(u.split('?')[0]).match(/[^/]+$/); if (m) label = m[0]; } catch(_){}
+    const short = label.length > 10 ? label.slice(0, 9) + '…' : label;
+    return `<a href="${linkUrl(u)}" target="_blank" rel="noopener" title="${esc(label)}">${isImg ? `<img src="${linkUrl(u)}">` : esc(short)}</a>`;
   }).join('') || '<span class="muted small">No response files yet.</span>';
 }
 async function saveResponse(markReady){
@@ -703,6 +742,7 @@ $('#d-comment').addEventListener('keydown', e => { if(e.key==='Enter') addCommen
   document.querySelector('.brand').appendChild(who);
   document.getElementById('signout').onclick = e => { e.preventDefault(); HTRA.logout(); };
 
+  await loadManagers();
   refreshStats();
   applyFilters();
   const p = new URLSearchParams(location.search);
