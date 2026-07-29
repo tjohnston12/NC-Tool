@@ -60,7 +60,7 @@ tbody tr{cursor:pointer} tbody tr:hover td{background:#F7F8FB}
 .c-Major{background:#FBE9E9;color:var(--bad)} .c-Minor{background:#FDF0DD;color:var(--amber)} .c-OFI{background:#E7EFFA;color:#1B4F8A}
 .s-New{background:#EEF0F4;color:#444} .s-Containment{background:#FDEBDD;color:#8A4A12}
 .s-RootCause{background:#FDF0DD;color:var(--amber)} .s-CorrectiveAction{background:#E0F2F0;color:#0F6E56}
-.s-Verification{background:#E7EFFA;color:#1B4F8A} .s-Closed{background:#E3F3EC;color:var(--good)} .s-Cancelled{background:#F1F2F6;color:#889}
+.s-ReadyforReview{background:#EFE7F7;color:#6B3FA0} .s-Verification{background:#E7EFFA;color:#1B4F8A} .s-Closed{background:#E3F3EC;color:var(--good)} .s-Cancelled{background:#F1F2F6;color:#889}
 .overdue{color:var(--bad);font-weight:700}
 .muted{color:var(--muted)} .small{font-size:12px}
 .empty{text-align:center;color:var(--muted);padding:26px}
@@ -128,7 +128,7 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
         <option value="open">All open</option><option value="">All</option>
         <option value="overdue">Overdue</option>
         <option>New</option><option>Containment</option><option>Root Cause</option>
-        <option>Corrective Action</option><option>Verification</option>
+        <option>Corrective Action</option><option>Ready for Review</option><option>Verification</option>
         <option>Closed</option><option>Cancelled</option>
       </select>
       <select id="f-class"><option value="">Any class</option><option>Major</option><option>Minor</option><option>OFI</option></select>
@@ -155,7 +155,7 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
 
     <div class="grid3">
       <div class="fieldrow"><label class="f">Status</label>
-        <select id="d-status"><option>New</option><option>Containment</option><option>Root Cause</option><option>Corrective Action</option><option>Verification</option><option>Closed</option><option>Cancelled</option></select></div>
+        <select id="d-status"><option>New</option><option>Containment</option><option>Root Cause</option><option>Corrective Action</option><option>Ready for Review</option><option>Verification</option><option>Closed</option><option>Cancelled</option></select></div>
       <div class="fieldrow"><label class="f">Classification</label>
         <select id="d-class"><option value=""></option><option>Major</option><option>Minor</option><option>OFI</option></select></div>
       <div class="fieldrow"><label class="f">Due date</label><input type="date" id="d-due"></div>
@@ -195,7 +195,7 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
       <label class="f" style="margin-top:14px">Response files &amp; photos of repairs</label>
       <div class="thumbs" id="d-respondfiles"></div>
       <label class="photo-btn" id="d-upload-label"><input type="file" id="d-respond-file" accept="image/*,application/pdf" multiple hidden> + Add files / photos</label>
-      <div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn wine" id="d-respond-save" style="display:none">Save response</button></div>
+      <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px"><button class="btn" id="d-respond-ready" style="display:none">Mark ready for review</button><button class="btn wine" id="d-respond-save" style="display:none">Save response</button></div>
     </div>
 
     <div class="fieldrow"><label class="f">Add a comment</label>
@@ -395,7 +395,8 @@ function openNC(id){
     <dt>Source</dt><dd>${esc(n.Source||'—')}${n['Source Reference']?` · ${esc(n['Source Reference'])}`:''}</dd>
     <dt>Requirement</dt><dd>${esc(n.Requirement||'—')}</dd>
     <dt>Description</dt><dd>${esc(n.Description||'—')}</dd>
-    ${n['Attachment URLs'] ? `<dt>Attachments</dt><dd>${String(n['Attachment URLs']).split(/\n+/).filter(Boolean).map((u,i)=>`<a href="${encodeURI(u)}" target="_blank" rel="noopener">file ${i+1}</a>`).join(' · ')}</dd>` : ''}`;
+    ${Array.isArray(n['Files']) && n['Files'].length ? `<dt>Files</dt><dd>${n['Files'].map(f=>`<a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(f.filename||'file')}</a>`).join(' · ')}</dd>` : ''}
+    ${n['Attachment URLs'] ? `<dt>Links</dt><dd>${String(n['Attachment URLs']).split(/\n+/).filter(Boolean).map((u,i)=>`<a href="${encodeURI(u)}" target="_blank" rel="noopener">file ${i+1}</a>`).join(' · ')}</dd>` : ''}`;
   setV('#d-status', n.Status || 'New'); setV('#d-class', n.Classification);
   setV('#d-due', n['Due Date']); setV('#d-division', n.Division); setV('#d-resp', n['Responsible Person']);
   setV('#d-priority', n.Priority); setV('#d-reviewers', n['Reviewers']);
@@ -437,6 +438,8 @@ function openNC(id){
   $('#d-upload-label').classList.toggle('disabled', !CAN_RESPOND);
   $('#d-respond-file').disabled = !CAN_RESPOND;
   $('#d-respond-save').style.display = CAN_RESPOND ? '' : 'none';
+  const curSt = n.Status || 'New';
+  $('#d-respond-ready').style.display = (CAN_RESPOND && !TERMINAL.includes(curSt) && curSt !== 'Ready for Review') ? '' : 'none';
   $('#dv').classList.add('on');
 }
 
@@ -521,17 +524,20 @@ function renderRespFiles(){
     return `<a href="${encodeURI(u)}" target="_blank" rel="noopener">${isImg ? `<img src="${u}">` : 'file'}</a>`;
   }).join('') || '<span class="muted small">No response files yet.</span>';
 }
-async function saveResponse(){
+async function saveResponse(markReady){
   if(!CUR) return;
   const checklist = CHECKLIST_ITEMS.map(it => ({ item: it, done: !!RESP_CHECK[it] }));
   const fields = { 'Response Checklist': JSON.stringify(checklist), 'Response Files': RESP_FILES.join('\n') };
-  const btn = $('#d-respond-save'); btn.disabled = true; btn.textContent = 'Saving…';
+  if (markReady) fields['Status'] = 'Ready for Review';
+  const btn = markReady ? $('#d-respond-ready') : $('#d-respond-save');
+  const orig = btn.textContent; btn.disabled = true; btn.textContent = 'Saving…';
   try{
     const r = await fetch(API, { method:'PATCH', headers: authHeaders(), body: JSON.stringify({ id: CUR.id, fields }) });
     const j = await r.json(); if(!j.ok) throw new Error(j.error || 'save failed');
-    cache([j.record]); toast('Response saved');
+    cache([j.record]); toast(markReady ? 'Marked ready for review' : 'Response saved');
+    if (markReady) { $('#dv').classList.remove('on'); applyFilters(); refreshStats(); }
   }catch(e){ toast('Not saved — ' + e.message); }
-  finally{ btn.disabled = false; btn.textContent = 'Save response'; }
+  finally{ btn.disabled = false; btn.textContent = orig; }
 }
 
 async function refreshStats(){
@@ -556,7 +562,8 @@ $('#d-x').onclick = $('#d-cancel').onclick = () => $('#dv').classList.remove('on
 $('#n-x').onclick = $('#n-cancel').onclick = () => $('#nv').classList.remove('on');
 $('#h-x').onclick = () => $('#hv').classList.remove('on');
 $('#d-save').onclick = saveNC;
-$('#d-respond-save').onclick = saveResponse;
+$('#d-respond-save').onclick = () => saveResponse(false);
+$('#d-respond-ready').onclick = () => saveResponse(true);
 $('#d-respond-file').addEventListener('change', async e => {
   const files = [...e.target.files]; e.target.value = '';
   for(const file of files){

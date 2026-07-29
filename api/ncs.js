@@ -46,7 +46,7 @@ const EMP_BASE    = process.env.EMPLOYEES_BASE  || 'appraSoUXoTbhroG6';
 const EMP_TABLE   = process.env.EMPLOYEES_TABLE || 'Employees';
 
 const TERMINAL = ['Closed', 'Cancelled'];
-const STATUSES = ['New', 'Containment', 'Root Cause', 'Corrective Action', 'Verification', 'Closed', 'Cancelled'];
+const STATUSES = ['New', 'Containment', 'Root Cause', 'Corrective Action', 'Ready for Review', 'Verification', 'Closed', 'Cancelled'];
 
 // Fields a Manager may write. Admins may additionally write ADMIN_FIELDS.
 const MANAGER_FIELDS = new Set([
@@ -63,6 +63,9 @@ const ADMIN_FIELDS = new Set([
 // Fields the assigned responder (matched by name) may write on their own NC,
 // even without Manager/Admin rights.
 const RESPONSE_FIELDS = new Set(['Response Checklist', 'Response Files']);
+// Statuses a responder (non-manager) may set on their own NC — "done, please review".
+// Only an Admin may set a terminal status (Closed / Cancelled); see the rails below.
+const RESPONDER_STATUSES = ['Ready for Review'];
 
 const esc = s => String(s).replace(/'/g, "\\'");
 const today = () => new Date().toISOString().slice(0, 10);
@@ -341,6 +344,7 @@ module.exports = async (req, res) => {
         if (canWork && MANAGER_FIELDS.has(k)) fields[k] = v;
         else if (canWork && ADMIN_FIELDS.has(k)) { if (isAdmin) fields[k] = v; else rejected.push(k); }
         else if (RESPONSE_FIELDS.has(k)) fields[k] = v;   // responder (or manager) may write response fields
+        else if (k === 'Status' && RESPONDER_STATUSES.includes(v)) fields[k] = v;   // responder may mark "Ready for Review"
         else rejected.push(k);
       }
 
