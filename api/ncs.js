@@ -146,18 +146,18 @@ async function stats() {
       const src = f['Source'];
       if (src === 'Provincial Audit') { acc.provincial.total++; if (!TERMINAL.includes(st)) acc.provincial.open++; }
       else if (src === 'Internal Audit') { acc.internal.total++; if (!TERMINAL.includes(st)) acc.internal.open++; }
-      // OMM standard breakdown across all records (multi-standard split on top-level commas)
-      const sc = f['Standard / Clause'];
-      if (sc) for (const part of splitStandards(sc)) {
-        const m = part.match(/^OMM\s*(\d{3})\b/);
-        const code = m ? `OMM ${m[1]}` : '__OTHER__';
-        const b = acc.byStandard[code] || (acc.byStandard[code] = { code, label: m ? part : 'Other / non-OMM', count: 0 });
-        b.count++;
-      }
       if (!TERMINAL.includes(st)) {
         acc.open++;
         if (f['Due Date'] && f['Due Date'] < t) acc.overdue++;
         if (f['Classification'] === 'Major') acc.majorOpen++;
+        // OMM standard breakdown — OPEN NCs only (multi-standard split on top-level commas)
+        const sc = f['Standard / Clause'];
+        if (sc) for (const part of splitStandards(sc)) {
+          const m = part.match(/^OMM\s*(\d{3})\b/);
+          const code = m ? `OMM ${m[1]}` : '__OTHER__';
+          const b = acc.byStandard[code] || (acc.byStandard[code] = { code, label: m ? part : 'Other / non-OMM', count: 0 });
+          b.count++;
+        }
         acc.bySource[f['Source'] || 'Other'] = (acc.bySource[f['Source'] || 'Other'] || 0) + 1;
         acc.byClassification[f['Classification'] || 'Unset'] = (acc.byClassification[f['Classification'] || 'Unset'] || 0) + 1;
         acc.byDivision[f['Division'] || 'Unassigned'] = (acc.byDivision[f['Division'] || 'Unassigned'] || 0) + 1;
