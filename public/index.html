@@ -195,6 +195,18 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
       <div class="fieldrow"><label class="f">Reviewers <span style="text-transform:none;font-weight:400;color:var(--muted)">— emailed to review; separate names with ;</span></label><input id="d-reviewers" type="text"></div>
     </div>
 
+    <div class="stage" id="d-planbox"><h3>Action plan <span style="text-transform:none;font-weight:400;color:var(--muted)">— steps toward correcting the NC; start within 5 working days of issue</span></h3>
+      <div class="respond-meta" id="d-plan-status"></div>
+      <div id="d-plan-steps"></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap">
+        <button class="btn sm ghost" id="d-plan-add" style="display:none">+ Add step</button>
+        <div style="display:flex;gap:10px">
+          <button class="btn sm ghost" id="d-plan-followup" style="display:none">Send follow-up</button>
+          <button class="btn sm wine" id="d-plan-save" style="display:none">Save action plan</button>
+        </div>
+      </div>
+    </div>
+
     <div class="stage"><h3>Containment — immediate action</h3>
       <div class="fieldrow"><textarea id="d-contain" placeholder="What was done right away to contain the problem…"></textarea></div></div>
     <div class="stage"><h3>Root cause</h3>
@@ -251,7 +263,7 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
       <div class="fieldrow"><label class="f">Date raised</label><input type="date" id="n-date"></div>
       <div class="fieldrow"><label class="f">Division</label>
         <select id="n-division"><option value=""></option><option>Western</option><option>Eastern</option><option>Head Office</option></select></div>
-      <div class="fieldrow"><label class="f">Due date</label><input type="date" id="n-due"></div>
+      <div class="fieldrow"><label class="f">Due date <span style="text-transform:none;font-weight:400;color:var(--muted)">— leave blank for 10 working days from raised</span></label><input type="date" id="n-due"></div>
     </div>
     <div class="grid2">
       <div class="fieldrow"><label class="f">Standard / clause violated</label><input id="n-clause" type="text" placeholder="ISO 9001 8.5.1 · OMM 706 · contract §4.2…"></div>
@@ -300,6 +312,7 @@ const CLOUD_NAME = 'djrqifos6', UPLOAD_PRESET = 'uzh72cqd';
 const CHECKLIST_ITEMS = ['Non-Conformance Corrected','Risk Analysis Performed','Reviewed to prevent re-occurrence','Reviewed by General Manager','Response Sheet Completed'];
 let RESP_FILES = [], RESP_CHECK = {}, CAN_RESPOND = false;
 let MANAGERS = [];
+let PLAN = [];
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -350,6 +363,53 @@ function noticePdf(n){
   const hit = urls.find(u => isPdf(u) && nc && dec(u).includes(nc)) || urls.find(isPdf);
   if (hit) return { url: hit, name: 'Audit report (PDF)' };
   return null;
+}
+
+// Add N working days (Mon–Fri) to an ISO date. Holidays not accounted for.
+function addBusinessDays(dateStr, n){ const d=new Date(`${dateStr}T00:00:00Z`); let a=0; while(a<n){ d.setUTCDate(d.getUTCDate()+1); const w=d.getUTCDay(); if(w!==0&&w!==6) a++; } return d.toISOString().slice(0,10); }
+function renderPlan(){
+  const n = CUR || {};
+  const raised = n['Date Raised']; const due = raised ? addBusinessDays(raised, 5) : ''; const started = n['Action Plan Started']; const t = today();
+  let status;
+  if (started) status = `<span style="color:var(--good);font-weight:700">Started ${esc(started)}</span>`;
+  else if (due && t > due) status = `<span style="color:var(--bad);font-weight:700">Overdue — action plan should have started by ${esc(due)}</span>`;
+  else status = `<span class="prio prio-Important">Start by ${esc(due||'—')}</span> <span class="muted">within 5 working days of issue</span>`;
+  $('#d-plan-status').innerHTML = status;
+  const editable = CAN_RESPOND;
+  $('#d-plan-steps').innerHTML = PLAN.length ? PLAN.map((s,i) => `
+    <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:8px">
+      <input type="checkbox" class="plan-done" data-i="${i}" ${s.done?'checked':''} ${editable?'':'disabled'} title="Done" style="margin-top:9px;width:17px;height:17px;flex:none">
+      <div style="flex:1;display:grid;grid-template-columns:1fr 150px;gap:8px">
+        <input type="text" class="plan-step" data-i="${i}" value="${esc(s.step||'')}" placeholder="What will be done…" ${editable?'':'disabled'}>
+        <input type="date" class="plan-due" data-i="${i}" value="${esc(s.due||'')}" ${editable?'':'disabled'} title="Expected completion">
+      </div>
+      ${editable?`<button class="plan-del" data-i="${i}" title="Remove" style="border:none;background:none;color:var(--bad);font-size:20px;line-height:1;cursor:pointer">×</button>`:''}
+    </div>`).join('') : '<span class="muted small">No action-plan steps yet.</span>';
+  document.querySelectorAll('.plan-step').forEach(el=>el.oninput=()=>{ PLAN[+el.dataset.i].step=el.value; });
+  document.querySelectorAll('.plan-due').forEach(el=>el.onchange=()=>{ PLAN[+el.dataset.i].due=el.value; });
+  document.querySelectorAll('.plan-done').forEach(el=>el.onchange=()=>{ PLAN[+el.dataset.i].done=el.checked; });
+  document.querySelectorAll('.plan-del').forEach(el=>el.onclick=()=>{ PLAN.splice(+el.dataset.i,1); renderPlan(); });
+}
+function planFields(){ const c = PLAN.filter(s=>(s.step||'').trim()).map(s=>({ step:s.step.trim(), due:s.due||'', done:!!s.done })); return c.length ? JSON.stringify(c) : ''; }
+async function savePlan(){
+  if(!CUR) return;
+  const btn=$('#d-plan-save'); const orig=btn.textContent; btn.disabled=true; btn.textContent='Saving…';
+  try{
+    const r = await fetch(API, { method:'PATCH', headers: authHeaders(), body: JSON.stringify({ id: CUR.id, fields: { 'Action Plan': planFields() } }) });
+    const j = await r.json(); if(!j.ok) throw new Error(j.error||'save failed');
+    cache([j.record]); CUR = j.record; toast('Action plan saved'); renderPlan();
+  }catch(e){ toast('Not saved — ' + e.message); }
+  finally{ btn.disabled=false; btn.textContent=orig; }
+}
+async function sendFollowupEmail(){
+  if(!CUR) return;
+  const btn=$('#d-plan-followup'); const orig=btn.textContent; btn.disabled=true; btn.textContent='Sending…';
+  try{
+    const r = await fetch(API, { method:'POST', headers: authHeaders(), body: JSON.stringify({ action:'followup', id: CUR.id }) });
+    const j = await r.json(); if(!j.ok) throw new Error(j.error||'failed');
+    toast('Follow-up email sent');
+  }catch(e){ toast('Follow-up not sent — ' + e.message); }
+  finally{ btn.disabled=false; btn.textContent=orig; }
 }
 
 function renderKpis(){
@@ -450,7 +510,7 @@ function openNC(id){
   $('#d-sub').textContent = [n.Source, n['Source Reference'], n['Standard / Clause']].filter(Boolean).join(' · ');
   const _np = noticePdf(n);
   $('#d-facts').innerHTML = `
-    ${_np ? `<dt>Audit report</dt><dd><a href="${linkUrl(_np.url)}" target="_blank" rel="noopener" style="font-weight:700">📄 Open Provincial Audit Report (PDF)</a></dd>` : ''}
+    ${_np ? `<dt>Audit report</dt><dd><a href="${linkUrl(_np.url)}" target="_blank" rel="noopener" style="font-weight:700">📄 Open Audit Report (PDF)</a></dd>` : ''}
     <dt>Raised</dt><dd>${esc(n['Date Raised']||'—')} by ${esc(n['Raised By']||'—')}</dd>
     <dt>Source</dt><dd>${esc(n.Source||'—')}${n['Source Reference']?` · ${esc(n['Source Reference'])}`:''}</dd>
     <dt>Requirement</dt><dd>${esc(n.Requirement||'—')}</dd>
@@ -500,6 +560,12 @@ function openNC(id){
   $('#d-respond-save').style.display = CAN_RESPOND ? '' : 'none';
   const curSt = n.Status || 'New';
   $('#d-respond-ready').style.display = (CAN_RESPOND && !TERMINAL.includes(curSt) && curSt !== 'Ready for Review') ? '' : 'none';
+  // ---- Action plan ----
+  PLAN = []; try { const ap = JSON.parse(n['Action Plan'] || '[]'); if (Array.isArray(ap)) PLAN = ap.map(s => ({ step: s.step||'', due: s.due||'', done: !!s.done })); } catch(_){}
+  renderPlan();
+  $('#d-plan-add').style.display = CAN_RESPOND ? '' : 'none';
+  $('#d-plan-save').style.display = CAN_RESPOND ? '' : 'none';
+  $('#d-plan-followup').style.display = CAN_WORK ? '' : 'none';
   $('#dv').classList.add('on');
 }
 
@@ -513,6 +579,7 @@ async function saveNC(){
     'Containment Action': $('#d-contain').value, 'Root Cause': $('#d-root').value,
     'Corrective Action': $('#d-corrective').value, 'Preventive Action': $('#d-preventive').value,
     'Date Action Completed': $('#d-done').value || null,
+    'Action Plan': planFields(),
   };
   if (IS_ADMIN) Object.assign(fields, {
     'Verified By': $('#d-verby').value, 'Date Verified': $('#d-verdate').value || null,
@@ -714,6 +781,9 @@ $('#h-x').onclick = () => $('#hv').classList.remove('on');
 $('#d-save').onclick = saveNC;
 $('#d-respond-save').onclick = () => saveResponse(false);
 $('#d-respond-ready').onclick = () => saveResponse(true);
+$('#d-plan-add').onclick = () => { PLAN.push({ step:'', due:'', done:false }); renderPlan(); };
+$('#d-plan-save').onclick = savePlan;
+$('#d-plan-followup').onclick = sendFollowupEmail;
 $('#d-respond-file').addEventListener('change', async e => {
   const files = [...e.target.files]; e.target.value = '';
   for(const file of files){

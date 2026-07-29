@@ -44,6 +44,7 @@ const RESEND_KEY  = process.env.RESEND_API_KEY;
 const RESEND_FROM = process.env.RESEND_FROM || 'quality@mrdc-htra.com';
 const EMP_BASE    = process.env.EMPLOYEES_BASE  || 'appraSoUXoTbhroG6';
 const EMP_TABLE   = process.env.EMPLOYEES_TABLE || 'Employees';
+const ADMIN_EMAIL = process.env.NC_ADMIN_EMAIL || 'tjohnston@mrdc.ca';
 
 const TERMINAL = ['Closed', 'Cancelled'];
 const STATUSES = ['New', 'Containment', 'Root Cause', 'Corrective Action', 'Ready for Review', 'Verification', 'Closed', 'Cancelled'];
@@ -56,13 +57,14 @@ const MANAGER_FIELDS = new Set([
   'Corrective Action', 'Preventive Action', 'Date Action Completed',
   'Attachment URLs', 'Status',
   'Priority', 'Reviewers', 'Response Checklist', 'Response Files',
+  'Action Plan', 'Action Plan Started',
 ]);
 const ADMIN_FIELDS = new Set([
   'Verified By', 'Date Verified', 'Verification Notes', 'Date Closed',
 ]);
 // Fields the assigned responder (matched by name) may write on their own NC,
 // even without Manager/Admin rights.
-const RESPONSE_FIELDS = new Set(['Response Checklist', 'Response Files']);
+const RESPONSE_FIELDS = new Set(['Response Checklist', 'Response Files', 'Action Plan', 'Action Plan Started']);
 // Statuses a responder (non-manager) may set on their own NC — "done, please review".
 // Only an Admin may set a terminal status (Closed / Cancelled); see the rails below.
 const RESPONDER_STATUSES = ['Ready for Review'];
@@ -275,6 +277,41 @@ async function notifyAssignment({ ncNo, appUrl, oldFields, newFields, actor }) {
   }
 }
 
+// Add N working days (Mon–Fri) to an ISO date string. Holidays are not accounted for.
+function addBusinessDays(dateStr, n) {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  let added = 0;
+  while (added < n) { d.setUTCDate(d.getUTCDate() + 1); const dow = d.getUTCDay(); if (dow !== 0 && dow !== 6) added++; }
+  return d.toISOString().slice(0, 10);
+}
+function planSteps(fields) {
+  try { const a = JSON.parse(fields['Action Plan'] || '[]'); return Array.isArray(a) ? a.filter(s => s && s.step) : []; } catch { return []; }
+}
+// Follow-up email about an NC and its action plan — to the responsible person + the NC admin.
+async function sendFollowup({ ncNo, fields, appUrl, actor }) {
+  const resp = String(fields['Responsible Person'] || '').trim();
+  const emails = await emailsForNames(resp ? [resp] : []);
+  const uniq = [...new Set([emails[resp.toLowerCase()], ADMIN_EMAIL].filter(Boolean))];
+  if (!uniq.length) return false;
+  const raised = fields['Date Raised'];
+  const due = raised ? addBusinessDays(raised, 5) : '';
+  const started = fields['Action Plan Started'];
+  const steps = planSteps(fields);
+  const statusLine = started
+    ? `The action plan was started on ${started}.`
+    : `<b style="color:#A32D2D">No action plan has been started yet.</b> It must be started within 5 working days of issue${due ? ` — by ${due}` : ''}.`;
+  const stepsHtml = steps.length
+    ? '<ul>' + steps.map(s => `<li>${String(s.step)}${s.due ? ` — expected ${s.due}` : ''}${s.done ? ' ✓' : ''}</li>`).join('') + '</ul>'
+    : '<p>No steps recorded yet.</p>';
+  const link = appUrl ? `${appUrl}/?nc=${encodeURIComponent(ncNo)}` : '';
+  const btn = link ? `<p><a href="${link}" style="background:#1E2B5E;color:#fff;padding:9px 16px;border-radius:8px;text-decoration:none;font-weight:600">Open ${ncNo}</a></p>` : '';
+  const by = actor ? ` (sent by ${actor})` : '';
+  const html = `<p>Follow-up on non-conformance <b>${ncNo}</b>${by}.</p><p>${statusLine}</p><p><b>Action plan:</b></p>${stepsHtml}${btn}`;
+  let ok = false;
+  for (const addr of uniq) { if (await sendMail(addr, `NC ${ncNo} — action plan follow-up`, html)) ok = true; }
+  return ok;
+}
+
 module.exports = async (req, res) => {
   if (!PAT || !BASE) { res.status(500).json({ ok: false, error: 'AIRTABLE_PAT and NC_BASE_ID must be set' }); return; }
 
@@ -318,6 +355,22 @@ module.exports = async (req, res) => {
         return;
       }
 
+      // ── Send an action-plan follow-up email (Manager/Admin) ────────────────
+      if (body.action === 'followup') {
+        if (!canWork) { res.status(403).json({ ok: false, error: 'Managers and admins only' }); return; }
+        if (!body.id) { res.status(400).json({ ok: false, error: 'id is required' }); return; }
+        const cur = await at(`${AT}/${body.id}`);
+        const host = req.headers['x-forwarded-host'] || req.headers.host;
+        const sent = await sendFollowup({ ncNo: cur.fields['NC #'] || body.id, fields: cur.fields, appUrl: host ? `https://${host}` : '', actor: userName });
+        if (sent) {
+          const stamp = `[${new Date().toISOString().slice(0, 16).replace('T', ' ')} · ${userName || 'unknown'}]`;
+          const log = [(cur.fields['Activity Log'] || '').trim(), `${stamp} action-plan follow-up email sent`].filter(Boolean).join('\n');
+          await at(`${AT}/${body.id}`, 'PATCH', { fields: { 'Activity Log': log } });
+        }
+        res.status(sent ? 200 : 500).json({ ok: sent, error: sent ? undefined : 'Email not sent — check RESEND_API_KEY / recipient emails' });
+        return;
+      }
+
       // ── Create ─────────────────────────────────────────────────────────────
       if (!canWork) { res.status(403).json({ ok: false, error: 'Only NC admins and managers can raise an NC' }); return; }
       const incoming = body.fields || {};
@@ -342,6 +395,8 @@ module.exports = async (req, res) => {
       }
       fields['Status'] = fields['Status'] && STATUSES.includes(fields['Status']) ? fields['Status'] : 'New';
       if (!fields['Date Raised']) fields['Date Raised'] = today();
+      // Default due date = 10 working days from the raised date (unless one was entered).
+      if (!fields['Due Date']) fields['Due Date'] = addBusinessDays(fields['Date Raised'], 10);
       if (!fields['Raised By']) fields['Raised By'] = userName;
       fields['Submitted At'] = new Date().toISOString();
       const stamp = `[${new Date().toISOString().slice(0, 16).replace('T', ' ')} · ${userName || 'unknown'}]`;
@@ -375,6 +430,11 @@ module.exports = async (req, res) => {
         else if (RESPONSE_FIELDS.has(k)) fields[k] = v;   // responder (or manager) may write response fields
         else if (k === 'Status' && RESPONDER_STATUSES.includes(v)) fields[k] = v;   // responder may mark "Ready for Review"
         else rejected.push(k);
+      }
+
+      // Stamp when the action plan is first started (for the 5-working-day rule).
+      if ('Action Plan' in fields && String(fields['Action Plan'] || '').trim() && !String(curFields['Action Plan Started'] || '').trim() && !fields['Action Plan Started']) {
+        fields['Action Plan Started'] = today();
       }
 
       // Status rails: only Admin may set a terminal status; stamps applied.

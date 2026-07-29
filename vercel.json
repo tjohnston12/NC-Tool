@@ -1,5 +1,6 @@
 {
   "crons": [
-    { "path": "/api/nc-digest", "schedule": "0 11 * * 1" }
+    { "path": "/api/nc-digest", "schedule": "0 11 * * 1" },
+    { "path": "/api/nc-followup", "schedule": "0 11 * * 1-5" }
   ]
 }
