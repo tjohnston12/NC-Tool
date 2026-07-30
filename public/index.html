@@ -166,6 +166,9 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
       <button class="btn sm ghost" id="r-pdf">Export PDF</button>
       <span class="muted small" id="r-count"></span>
     </div></div>
+    <div class="card" id="r-trend-card" style="margin-bottom:14px"><h2>Monthly trend <small>issued · closed · open backlog at month-end</small></h2>
+      <div id="r-trend" style="padding:10px 12px 6px"></div>
+    </div>
     <div class="kpis" id="r-kpis"></div>
     <div class="repgrid" id="r-breakdowns"></div>
   </div>
@@ -775,6 +778,78 @@ function tallyBars(title, map){
   const bars = entries.map(([k,v])=>`<div class="stdrow"><span class="stdname" title="${esc(k)}">${esc(k)}</span><span class="stdbar"><i style="width:${Math.max(v/max*100,2)}%"></i></span><span class="stdn">${v.toLocaleString()}</span></div>`).join('') || '<span class="muted small">None</span>';
   return `<div class="stdcard"><h2>${esc(title)}</h2><div>${bars}</div></div>`;
 }
+// ---------- Monthly trend (issued · closed · open backlog) ----------
+const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const ymOf = d => (d||'').slice(0,7);
+function niceMax(v){ if(v<=5) return 5; const p=Math.pow(10,Math.floor(Math.log10(v))); const f=v/p; return (f<=1?1:f<=2?2:f<=5?5:10)*p; }
+function monthsBetween(a,b){ const out=[]; let [y,m]=a.split('-').map(Number); const [Y,M]=b.split('-').map(Number); while(y<Y||(y===Y&&m<=M)){ out.push(`${y}-${String(m).padStart(2,'0')}`); if(++m>12){m=1;y++;} if(out.length>720)break; } return out; }
+function computeMonthly(rows){
+  let minYm=null;
+  rows.forEach(n=>{ const r=ymOf(n['Date Raised']); if(r&&(!minYm||r<minYm)) minYm=r; });
+  if(!minYm) return [];
+  let maxYm=minYm; const nowYm=new Date().toISOString().slice(0,7);
+  rows.forEach(n=>{ const r=ymOf(n['Date Raised']); if(r>maxYm)maxYm=r; if(n.Status==='Closed'){ const c=ymOf(n['Date Closed']); if(c>maxYm)maxYm=c; } });
+  if(nowYm>maxYm) maxYm=nowYm;
+  const issued={}, closed={};
+  rows.forEach(n=>{ const r=ymOf(n['Date Raised']); if(r) issued[r]=(issued[r]||0)+1;
+    if(n.Status==='Closed'){ const c=ymOf(n['Date Closed']); if(c) closed[c]=(closed[c]||0)+1; } });
+  return monthsBetween(minYm,maxYm).map(ym=>{
+    const openEnd = rows.reduce((k,n)=>{ const r=ymOf(n['Date Raised']); if(!r||r>ym) return k;
+      if(TERMINAL.includes(n.Status||'New')){ const c=ymOf(n['Date Closed']); return (c&&c>ym)?k+1:k; }
+      return k+1; },0);
+    return { ym, issued:issued[ym]||0, closed:closed[ym]||0, openEnd };
+  });
+}
+const TREND_COL={iss:'#2a78d6',cls:'#1baf7a',opn:'#eb6834'};
+let TREND_TT=null;
+function renderTrend(series){
+  const host=$('#r-trend'); if(!host) return;
+  if(!series.length){ host.innerHTML='<div class="muted small" style="padding:6px 0">No dated NCs in the selected range.</div>'; return; }
+  const W=Math.max(host.clientWidth||760,320), H=300, mL=42,mR=14,mT=30,mB=38, pw=W-mL-mR, ph=H-mT-mB;
+  const n=series.length, slot=pw/n, base=mT+ph;
+  const nice=niceMax(Math.max(1,...series.map(d=>Math.max(d.issued,d.closed,d.openEnd))));
+  const yOf=v=>mT+ph*(1-v/nice), cx=i=>mL+slot*(i+0.5), barW=Math.max(3,Math.min(slot*0.30,16));
+  let grid='';
+  for(let t=0;t<=4;t++){ const val=nice*t/4,y=yOf(val); grid+=`<line x1="${mL}" y1="${y.toFixed(1)}" x2="${W-mR}" y2="${y.toFixed(1)}" stroke="#EEF0F4"/><text x="${mL-6}" y="${(y+3).toFixed(1)}" text-anchor="end" font-size="10" fill="#889">${Math.round(val)}</text>`; }
+  let bars='';
+  series.forEach((d,i)=>{ const c=cx(i);
+    if(d.issued) bars+=`<rect x="${(c-barW-1).toFixed(1)}" y="${yOf(d.issued).toFixed(1)}" width="${barW.toFixed(1)}" height="${(base-yOf(d.issued)).toFixed(1)}" rx="2" fill="${TREND_COL.iss}"><title>${MON[+d.ym.slice(5)-1]} ${d.ym.slice(0,4)} — issued ${d.issued}</title></rect>`;
+    if(d.closed) bars+=`<rect x="${(c+1).toFixed(1)}" y="${yOf(d.closed).toFixed(1)}" width="${barW.toFixed(1)}" height="${(base-yOf(d.closed)).toFixed(1)}" rx="2" fill="${TREND_COL.cls}"><title>${MON[+d.ym.slice(5)-1]} ${d.ym.slice(0,4)} — closed ${d.closed}</title></rect>`;
+  });
+  const pts=series.map((d,i)=>`${cx(i).toFixed(1)},${yOf(d.openEnd).toFixed(1)}`).join(' ');
+  const dots=series.map((d,i)=>`<circle cx="${cx(i).toFixed(1)}" cy="${yOf(d.openEnd).toFixed(1)}" r="3" fill="#fff" stroke="${TREND_COL.opn}" stroke-width="2"/>`).join('');
+  const step=Math.ceil(n/14); let xlab='';
+  series.forEach((d,i)=>{ if(i%step)return; const [yy,mm]=d.ym.split('-'); const lab=(mm==='01')?`${MON[+mm-1]} ${yy}`:MON[+mm-1]; xlab+=`<text x="${cx(i).toFixed(1)}" y="${H-mB+16}" text-anchor="middle" font-size="9.5" fill="#889">${lab}</text>`; });
+  let hits='';
+  series.forEach((d,i)=>{ hits+=`<rect class="trend-hit" data-i="${i}" x="${(mL+slot*i).toFixed(1)}" y="${mT}" width="${slot.toFixed(1)}" height="${ph}" fill="transparent"/>`; });
+  const lg=`<g font-size="11" fill="#333"><rect x="${mL}" y="9" width="11" height="11" rx="2" fill="${TREND_COL.iss}"/><text x="${mL+16}" y="18">Issued</text><rect x="${mL+70}" y="9" width="11" height="11" rx="2" fill="${TREND_COL.cls}"/><text x="${mL+86}" y="18">Closed</text><line x1="${mL+146}" y1="15" x2="${mL+164}" y2="15" stroke="${TREND_COL.opn}" stroke-width="2"/><circle cx="${mL+155}" cy="15" r="3" fill="#fff" stroke="${TREND_COL.opn}" stroke-width="2"/><text x="${mL+170}" y="18">Open backlog (month-end)</text></g>`;
+  host.innerHTML=`<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}" style="display:block;font-family:system-ui,sans-serif">${grid}${lg}${bars}<polyline points="${pts}" fill="none" stroke="${TREND_COL.opn}" stroke-width="2"/>${dots}${xlab}${hits}</svg>`;
+  if(!TREND_TT){ TREND_TT=document.createElement('div'); TREND_TT.style.cssText='position:fixed;pointer-events:none;z-index:9999;background:#1E2B5E;color:#fff;font-size:12px;padding:7px 9px;border-radius:7px;box-shadow:0 4px 14px rgba(0,0,0,.22);display:none;line-height:1.55;white-space:nowrap'; document.body.appendChild(TREND_TT); }
+  host.querySelectorAll('.trend-hit').forEach(r=>{
+    r.addEventListener('mousemove',e=>{ const d=series[+r.dataset.i]; const [yy,mm]=d.ym.split('-');
+      TREND_TT.innerHTML=`<b>${MON[+mm-1]} ${yy}</b><br>Issued: ${d.issued}<br>Closed: ${d.closed}<br>Open backlog: ${d.openEnd}`;
+      TREND_TT.style.display='block'; TREND_TT.style.left=(e.clientX+14)+'px'; TREND_TT.style.top=(e.clientY+14)+'px'; });
+    r.addEventListener('mouseleave',()=>{ TREND_TT.style.display='none'; });
+  });
+}
+function drawTrendPDF(doc,series,x,y,w,h){
+  if(!series.length) return y;
+  const mL=x+26,mB=y+h-14,mT=y+14,pw=(x+w)-mL,ph=mB-mT,n=series.length,slot=pw/n,base=mT+ph;
+  const nice=niceMax(Math.max(1,...series.map(d=>Math.max(d.issued,d.closed,d.openEnd))));
+  const yOf=v=>mT+ph*(1-v/nice), cx=i=>mL+slot*(i+0.5), barW=Math.max(1.4,Math.min(slot*0.30,9));
+  doc.setDrawColor(228,228,228); doc.setLineWidth(0.4); doc.setTextColor(150,150,150); doc.setFontSize(7);
+  for(let t=0;t<=4;t++){ const val=nice*t/4,yy=yOf(val); doc.line(mL,yy,x+w,yy); doc.text(String(Math.round(val)),mL-3,yy+2,{align:'right'}); }
+  series.forEach((d,i)=>{ const c=cx(i);
+    if(d.issued){ doc.setFillColor(42,120,214); doc.rect(c-barW-0.4,yOf(d.issued),barW,base-yOf(d.issued),'F'); }
+    if(d.closed){ doc.setFillColor(27,175,122); doc.rect(c+0.4,yOf(d.closed),barW,base-yOf(d.closed),'F'); }
+  });
+  doc.setDrawColor(235,104,52); doc.setLineWidth(1.2);
+  for(let i=1;i<n;i++) doc.line(cx(i-1),yOf(series[i-1].openEnd),cx(i),yOf(series[i].openEnd));
+  doc.setLineWidth(0.2);
+  const step=Math.ceil(n/12); doc.setTextColor(150,150,150); doc.setFontSize(6.5);
+  series.forEach((d,i)=>{ if(i%step)return; const [yy,mm]=d.ym.split('-'); const lab=mm==='01'?`${MON[+mm-1]} ${yy}`:MON[+mm-1]; doc.text(lab,cx(i),mB+9,{align:'center'}); });
+  return mB+9;
+}
 function renderReport(){
   const rows = reportFiltered();
   const today = new Date().toISOString().slice(0,10);
@@ -789,6 +864,7 @@ function renderReport(){
     <div class="kpi done"><b>${closed.length.toLocaleString()}</b><span>Closed</span></div>`;
   const b = reportBreakdowns(rows);
   $('#r-breakdowns').innerHTML = tallyBars('By status',b.byStatus)+tallyBars('By OMM standard',b.byStd)+tallyBars('By division',b.byDiv)+tallyBars('By source',b.bySrc);
+  renderTrend(computeMonthly(rows));
 }
 function reportCSV(){
   const rows = reportFiltered();
@@ -809,6 +885,17 @@ function reportPDF(){
   line('MRDC Non-Conformance Report',{size:18,bold:true,color:[30,43,94],gap:3});
   line(`Range: ${from||'earliest'} to ${to||'today'}${src?` · ${src}`:''} · generated ${today}`,{size:9,color:[120,120,120],gap:10});
   line(`${rows.length} NCs — ${open.length} open, ${overdue.length} overdue, ${closed.length} closed`,{size:11,bold:true,gap:10});
+  const series=computeMonthly(rows);
+  if(series.length){
+    if(y+184>740){ doc.addPage(); y=54; }
+    line('Monthly trend — issued · closed · open backlog',{size:12,bold:true,color:[30,43,94],gap:6});
+    y = drawTrendPDF(doc, series, M, y, W, 150) + 16;
+    doc.setFontSize(8); doc.setTextColor(60,60,60);
+    doc.setFillColor(42,120,214); doc.rect(M,y-6,8,8,'F'); doc.text('Issued',M+11,y);
+    doc.setFillColor(27,175,122); doc.rect(M+52,y-6,8,8,'F'); doc.text('Closed',M+63,y);
+    doc.setDrawColor(235,104,52); doc.setLineWidth(1.2); doc.line(M+108,y-3,M+124,y-3); doc.setLineWidth(0.2); doc.text('Open backlog (month-end)',M+128,y);
+    y+=18; doc.setTextColor(0,0,0);
+  }
   const b=reportBreakdowns(rows);
   const section=(title,map)=>{line(title,{size:12,bold:true,color:[30,43,94],gap:4});Object.entries(map).sort((x,z)=>z[1]-x[1]).forEach(([k,v])=>line(`${k}: ${v}`,{size:9,gap:3,indent:8}));y+=6;};
   section('By status',b.byStatus);section('By OMM standard',b.byStd);section('By division',b.byDiv);section('By source',b.bySrc);
