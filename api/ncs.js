@@ -47,7 +47,7 @@ const EMP_TABLE   = process.env.EMPLOYEES_TABLE || 'Employees';
 const ADMIN_EMAIL = process.env.NC_ADMIN_EMAIL || 'tjohnston@mrdc.ca';
 
 const TERMINAL = ['Closed', 'Cancelled'];
-const STATUSES = ['New', 'Containment', 'Root Cause', 'Corrective Action', 'Ready for Review', 'Verification', 'Closed', 'Cancelled'];
+const STATUSES = ['New', 'Containment', 'Root Cause', 'Corrective Action', 'Ready for Review', 'Letter Sent', 'Verification', 'Closed', 'Cancelled'];
 
 // Fields a Manager may write. Admins may additionally write ADMIN_FIELDS.
 const MANAGER_FIELDS = new Set([
@@ -61,6 +61,8 @@ const MANAGER_FIELDS = new Set([
 ]);
 const ADMIN_FIELDS = new Set([
   'Verified By', 'Date Verified', 'Verification Notes', 'Date Closed',
+  // Province response-letter stage (admin / Troy only)
+  'Response Letter Draft', 'Letter Date Sent', 'Provincial Response Letter',
 ]);
 // Fields the assigned responder (matched by name) may write on their own NC,
 // even without Manager/Admin rights.
@@ -277,6 +279,18 @@ async function notifyAssignment({ ncNo, appUrl, oldFields, newFields, actor }) {
   }
 }
 
+// Provincial NC only: when the response is marked "Ready for Review", email the NC
+// admin (Troy) that the manager's response is in and a Province response letter is needed.
+async function notifyResponseReady({ ncNo, appUrl, actor }) {
+  const to = ADMIN_EMAIL;
+  if (!to) return false;
+  const link = appUrl ? `${appUrl}/?nc=${encodeURIComponent(ncNo)}` : '';
+  const btn = link ? `<p><a href="${link}" style="background:#1E2B5E;color:#fff;padding:9px 16px;border-radius:8px;text-decoration:none;font-weight:600">Open ${ncNo}</a></p>` : '';
+  const by = actor ? ` (submitted by ${actor})` : '';
+  return await sendMail(to, `NC ${ncNo} — response ready, Province letter needed`,
+    `<p>The response for provincial non-conformance <b>${ncNo}</b> is ready for your review${by}.</p><p>Please review the manager's response and documents, then draft, sign and mail the Province response letter, and upload the signed scan.</p>${btn}`);
+}
+
 // Add N working days (Mon–Fri) to an ISO date string. Holidays are not accounted for.
 function addBusinessDays(dateStr, n) {
   const d = new Date(`${dateStr}T00:00:00Z`);
@@ -444,6 +458,7 @@ module.exports = async (req, res) => {
           if (!isAdmin) { res.status(403).json({ ok: false, error: 'Only an NC admin can close or cancel an NC' }); return; }
           if (fields['Status'] === 'Closed' && !fields['Date Closed']) fields['Date Closed'] = today();
         }
+        if (fields['Status'] === 'Letter Sent' && !fields['Letter Date Sent']) fields['Letter Date Sent'] = today();
         if (fields['Status'] === 'Verification' && !fields['Verified By'] && isAdmin && userName) {
           // convenience only — verification details still entered explicitly
         }
@@ -459,6 +474,12 @@ module.exports = async (req, res) => {
       const j = await at(`${AT}/${body.id}`, 'PATCH', { fields, typecast: true });
       const host = req.headers['x-forwarded-host'] || req.headers.host;
       try { await notifyAssignment({ ncNo: j.fields['NC #'] || curFields['NC #'] || body.id, appUrl: host ? `https://${host}` : '', oldFields: curFields, newFields: fields, actor: userName }); } catch (_) {}
+      // Provincial-only: alert Troy when the response is newly marked Ready for Review.
+      try {
+        if ('Status' in fields && fields['Status'] === 'Ready for Review' && curFields['Status'] !== 'Ready for Review' && curFields['Source'] === 'Provincial Audit') {
+          await notifyResponseReady({ ncNo: j.fields['NC #'] || curFields['NC #'] || body.id, appUrl: host ? `https://${host}` : '', actor: userName });
+        }
+      } catch (_) {}
       res.status(200).json({ ok: true, record: { id: j.id, ...j.fields }, rejected: rejected.length ? rejected : undefined });
       return;
     }

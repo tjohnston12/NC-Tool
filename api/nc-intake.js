@@ -1,39 +1,21 @@
 /*
  * NC — /api/nc-intake
  * -------------------
- * Machine intake for provincial notices AND audit reports, called by a Power
- * Automate flow that watches the mailbox for NBHC / @gnb.ca
- * "FMHP: Issue of Audit Reports OWFFM… and Notice OMNCN…" emails.
+ * Machine intake for provincial notices, audit reports AND closures, called by
+ * Power Automate flows that watch the mailbox for NBHC / @gnb.ca emails.
  * Secret-gated (not the user SSO) so an unattended flow can post to it.
  *
  * POST /api/nc-intake
  *   headers: x-intake-key: <INTAKE_SECRET>
  *   body: {
- *     "notices": [ {                         // -> Non Conformances table
- *        "nc": "OMNCN1124",                  // required
- *        "source": "Provincial Audit",       // optional (default Provincial Audit)
- *        "noticeType": "NCN",                // optional (default NCN)
- *        "standard": "Sch. 1, Part 5",       // optional
- *        "dateRaised": "2026-07-15",         // optional ISO (default today)
- *        "dueDate": "",                      // optional; blank => raised + 10 working days
- *        "description": "",                  // optional
- *        "noticeUrl": "https://…"            // optional
- *     } ],
- *     "audits": [ {                          // -> Audit Reports table
- *        "report": "OWFFM0064",              // required
- *        "source": "Provincial Audit",       // optional (default Provincial Audit)
- *        "date": "2026-07-21",               // optional ISO
- *        "result": "Compliant",              // optional (default Compliant)
- *        "standard": "",                     // optional
- *        "division": "",                     // optional
- *        "notes": "",                        // optional
- *        "reportUrl": "https://…"            // optional — link to filed PDF / source email
- *     } ]
+ *     "notices":  [ { "nc":"OMNCN1124", "standard":"", "dateRaised":"", "dueDate":"", "description":"", "noticeUrl":"" } ],  // -> Non Conformances
+ *     "audits":   [ { "report":"OWFFM0064", "date":"", "result":"", "standard":"", "division":"", "notes":"", "reportUrl":"" } ], // -> Audit Reports
+ *     "closures": [ { "nc":"OMNCN1073", "effectiveDate":"2026-05-19", "closureUrl":"" } ]   // -> close matching Non Conformance
  *   }
  *
- * Idempotent: a notice / report whose key already exists is skipped (never
- * duplicated), so the flow can safely re-run.
- * Returns { ok, notices:{created,skipped,errors}, audits:{created,skipped,errors} }.
+ * Idempotent: notices/audits whose key exists are skipped; a closure whose NCN
+ * is already Closed is skipped. Safe to re-run.
+ * Returns { ok, notices:{...}, audits:{...}, closures:{closed,skipped,notFound,errors} }.
  *
  * Env: AIRTABLE_PAT (write scope), NC_BASE_ID, INTAKE_SECRET (required).
  * Optional: NC_TABLE (default 'Non Conformances'), AUDIT_TABLE (default 'Audit Reports').
@@ -68,9 +50,13 @@ async function at(url, method = 'GET', body) {
   return json;
 }
 
-async function existsBy(atUrl, field, value) {
+async function findOne(atUrl, field, value) {
   const j = await at(`${atUrl}?maxRecords=1&filterByFormula=${encodeURIComponent(`{${field}}='${esc(value)}'`)}`);
-  return (j.records || []).length > 0;
+  return (j.records || [])[0] || null;
+}
+
+async function existsBy(atUrl, field, value) {
+  return !!(await findOne(atUrl, field, value));
 }
 
 async function importNotices(list) {
@@ -130,6 +116,33 @@ async function importAudits(list) {
   return { created, skipped, errors };
 }
 
+// Close matching NCNs from provincial closure emails. Auto-close (province is authoritative),
+// stamp Date Closed with the effective date, append the closure note + source-email link.
+async function importClosures(list) {
+  const closed = [], skipped = [], notFound = [], errors = [];
+  for (const c of list) {
+    const nc = String(c.nc || '').trim();
+    if (!nc) { errors.push({ key: null, error: 'missing nc' }); continue; }
+    try {
+      const rec = await findOne(AT_NC, 'NC #', nc);
+      if (!rec) { notFound.push(nc); continue; }
+      const f = rec.fields || {};
+      if ((f['Status'] || '') === 'Closed') { skipped.push(nc); continue; }
+      const eff = isDate(c.effectiveDate) ? c.effectiveDate : today();
+      const stamp = `[${today()} · Email intake] Province closed ${nc} effective ${eff}.` + (c.closureUrl ? ` Source: ${c.closureUrl}` : '');
+      const log = f['Activity Log'] ? `${f['Activity Log']}\n${stamp}` : stamp;
+      const fields = { 'Status': 'Closed', 'Date Closed': eff, 'Activity Log': log };
+      if (c.closureUrl) {
+        const cur = f['Attachment URLs'] || '';
+        fields['Attachment URLs'] = cur.includes(c.closureUrl) ? cur : (cur ? `${cur}\n${c.closureUrl}` : c.closureUrl);
+      }
+      await at(`${AT_NC}/${rec.id}`, 'PATCH', { fields, typecast: true });
+      closed.push(nc);
+    } catch (e) { errors.push({ key: nc, error: e.message }); }
+  }
+  return { closed, skipped, notFound, errors };
+}
+
 module.exports = async (req, res) => {
   if (!PAT || !BASE) { res.status(500).json({ ok: false, error: 'AIRTABLE_PAT and NC_BASE_ID must be set' }); return; }
   if (!SECRET) { res.status(500).json({ ok: false, error: 'INTAKE_SECRET is not configured' }); return; }
@@ -138,14 +151,16 @@ module.exports = async (req, res) => {
 
   try {
     const body = typeof req.body === 'object' && req.body ? req.body : JSON.parse(req.body || '{}');
-    const notices = Array.isArray(body.notices) ? body.notices : (body.nc ? [body] : []);
-    const audits  = Array.isArray(body.audits) ? body.audits : (body.report ? [body] : []);
-    if (!notices.length && !audits.length) { res.status(400).json({ ok: false, error: 'no notices or audits in body' }); return; }
+    const notices  = Array.isArray(body.notices)  ? body.notices  : (body.nc && !body.effectiveDate ? [body] : []);
+    const audits   = Array.isArray(body.audits)   ? body.audits   : (body.report ? [body] : []);
+    const closures = Array.isArray(body.closures) ? body.closures : (body.nc && body.effectiveDate ? [body] : []);
+    if (!notices.length && !audits.length && !closures.length) { res.status(400).json({ ok: false, error: 'no notices, audits or closures in body' }); return; }
 
-    const nRes = notices.length ? await importNotices(notices) : { created: [], skipped: [], errors: [] };
-    const aRes = audits.length  ? await importAudits(audits)   : { created: [], skipped: [], errors: [] };
-    const ok = nRes.errors.length === 0 && aRes.errors.length === 0;
-    res.status(200).json({ ok, notices: nRes, audits: aRes });
+    const nRes = notices.length  ? await importNotices(notices)   : { created: [], skipped: [], errors: [] };
+    const aRes = audits.length   ? await importAudits(audits)     : { created: [], skipped: [], errors: [] };
+    const cRes = closures.length ? await importClosures(closures) : { closed: [], skipped: [], notFound: [], errors: [] };
+    const ok = nRes.errors.length === 0 && aRes.errors.length === 0 && cRes.errors.length === 0;
+    res.status(200).json({ ok, notices: nRes, audits: aRes, closures: cRes });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }

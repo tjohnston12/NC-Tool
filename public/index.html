@@ -138,7 +138,7 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
         <option value="open">All open</option><option value="">All</option>
         <option value="overdue">Overdue</option>
         <option>New</option><option>Containment</option><option>Root Cause</option>
-        <option>Corrective Action</option><option>Ready for Review</option><option>Verification</option>
+        <option>Corrective Action</option><option>Ready for Review</option><option>Letter Sent</option><option>Verification</option>
         <option>Closed</option><option>Cancelled</option>
       </select>
       <select id="f-class"><option value="">Any class</option><option>Major</option><option>Minor</option><option>OFI</option></select>
@@ -179,7 +179,7 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
 
     <div class="grid3">
       <div class="fieldrow"><label class="f">Status</label>
-        <select id="d-status"><option>New</option><option>Containment</option><option>Root Cause</option><option>Corrective Action</option><option>Ready for Review</option><option>Verification</option><option>Closed</option><option>Cancelled</option></select></div>
+        <select id="d-status"><option>New</option><option>Containment</option><option>Root Cause</option><option>Corrective Action</option><option>Ready for Review</option><option>Letter Sent</option><option>Verification</option><option>Closed</option><option>Cancelled</option></select></div>
       <div class="fieldrow"><label class="f">Classification</label>
         <select id="d-class"><option value=""></option><option>Major</option><option>Minor</option><option>OFI</option></select></div>
       <div class="fieldrow"><label class="f">Due date</label><input type="date" id="d-due"></div>
@@ -215,6 +215,18 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
       <div class="fieldrow"><label class="f">Corrective action (eliminates the root cause)</label><textarea id="d-corrective"></textarea></div>
       <div class="fieldrow"><label class="f">Preventive action (optional — stops recurrence elsewhere)</label><textarea id="d-preventive"></textarea></div>
       <div class="fieldrow" style="max-width:230px"><label class="f">Date action completed</label><input type="date" id="d-done"></div></div>
+
+    <div class="stage admin" id="d-letterbox" style="display:none"><h3>Province response letter — NC admin</h3>
+      <div class="small muted" style="margin-bottom:8px">Draft the letter to NBHC, edit as needed, then print, sign and mail it. Upload the signed scan and mark the letter sent.</div>
+      <div style="display:flex;gap:8px;margin-bottom:8px"><button class="btn sm ghost" id="d-letter-gen">Generate draft</button><button class="btn sm ghost" id="d-letter-copy">Copy</button></div>
+      <textarea id="d-letter-draft" rows="16" style="width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.82rem;line-height:1.45"></textarea>
+      <div style="display:flex;justify-content:flex-end;margin-top:8px"><button class="btn wine" id="d-letter-save">Save draft</button></div>
+      <label class="f" style="margin-top:14px">Signed letter scan (mailed to Province)</label>
+      <div class="thumbs" id="d-letter-scan"></div>
+      <label class="photo-btn" id="d-letter-upload-label"><input type="file" id="d-letter-file" accept="image/*,application/pdf" multiple hidden> + Upload signed scan</label>
+      <div class="grid3" style="margin-top:12px"><div class="fieldrow"><label class="f">Letter date sent</label><input type="date" id="d-letter-date"></div></div>
+      <div style="display:flex;justify-content:flex-end;margin-top:8px"><button class="btn" id="d-letter-sent">Mark letter sent</button></div>
+    </div>
 
     <div class="stage admin" id="d-verifybox"><h3>Verification &amp; closure — NC admin</h3>
       <div class="grid3">
@@ -503,6 +515,41 @@ async function applyFilters(){
 
 // ---------- detail ----------
 const setV = (id, v) => { $(id).value = v ?? ''; };
+
+// ---------- Province response letter ----------
+let LETTER_SCAN = [];
+function renderLetterScan(){
+  const box = $('#d-letter-scan'); if(!box) return;
+  box.innerHTML = (LETTER_SCAN||[]).map(a => {
+    const u = a.url || a; const label = a.filename || 'scan';
+    const isImg = /(jpe?g|png|gif|webp)/i.test(label);
+    const short = label.length > 12 ? label.slice(0,11)+'…' : label;
+    return `<a href="${u}" target="_blank" rel="noopener" title="${esc(label)}">${isImg?`<img src="${u}">`:esc(short)}</a>`;
+  }).join('') || '<span class="muted small">No signed scan uploaded yet.</span>';
+}
+const isoOK = s => !!s && s.length>=10 && s[4]==='-' && s[7]==='-';
+function generateLetter(n){
+  const M=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const ord=x=>{const s=['th','st','nd','rd'],v=x%100;return x+(s[(v-20)%10]||s[v]||s[0]);};
+  const longD=iso=>{ if(!isoOK(iso)) return ''; const p=iso.slice(0,10).split('-').map(Number); return p[2]+' '+M[p[1]-1]+' '+p[0]; };
+  const ordD=iso=>{ if(!isoOK(iso)) return ''; const p=iso.slice(0,10).split('-').map(Number); return ord(p[2])+' of '+M[p[1]-1]+' '+p[0]; };
+  const num=n['NC #']||'(NC #)';
+  const ack='MRDC acknowledges receipt of the above noted non-conformance and agrees that the observation by the NBHC auditor warrants a non-conformance.';
+  let ca=String(n['Corrective Action']||'').trim();
+  const done=ordD(n['Date Action Completed']);
+  if(ca){
+    while(ca && (ca[ca.length-1]==='.'||ca[ca.length-1]===' ')) ca=ca.slice(0,-1);
+    ca = (done && ca.indexOf(done)<0) ? (ca+' on the '+done+'.') : (ca+'.');
+  } else {
+    ca = done ? ('The deficiency observed by the auditor was corrected on the '+done+'.') : 'The deficiency observed by the auditor has been corrected. [describe the corrective action]';
+  }
+  const hasFiles = (typeof RESP_FILES!=='undefined' && RESP_FILES.length>0);
+  const proof = hasFiles ? 'Please find attached a photo of the repairs as proof.' : 'Please find attached our response and supporting documentation as proof.';
+  const L=[longD(today()),''];
+  ['Mr. Mark Scott','Project Manager, NBHC/Provincial Advisor','NBHC','PO Box 6000','Fredericton, NB  E3B 5H1'].forEach(x=>L.push(x));
+  L.push('','Re: Non-Conformance Notice '+num,'','Dear Sir :','',ack,'',ca,'',proof,'','MRDC respectfully requests that '+num+' be closed.','','MRDC OPERATIONS CORPORATION','','Jason Greeley, P. Eng.','Deputy General Manager','','Encl.','TJ');
+  return L.join('\n');
+}
 function openNC(id){
   const n = ALL.find(x => x.id === id); if(!n) return;
   CUR = n;
@@ -566,6 +613,17 @@ function openNC(id){
   $('#d-plan-add').style.display = CAN_RESPOND ? '' : 'none';
   $('#d-plan-save').style.display = CAN_RESPOND ? '' : 'none';
   $('#d-plan-followup').style.display = CAN_WORK ? '' : 'none';
+  // ---- Province response letter (provincial NCs, admin only) ----
+  {
+    const showLetter = (n['Source'] === 'Provincial Audit') && IS_ADMIN;
+    $('#d-letterbox').style.display = showLetter ? '' : 'none';
+    if (showLetter) {
+      setV('#d-letter-draft', n['Response Letter Draft'] || '');
+      setV('#d-letter-date', n['Letter Date Sent'] || '');
+      LETTER_SCAN = Array.isArray(n['Provincial Response Letter']) ? n['Provincial Response Letter'].slice() : [];
+      renderLetterScan();
+    }
+  }
   $('#dv').classList.add('on');
 }
 
@@ -781,6 +839,39 @@ $('#h-x').onclick = () => $('#hv').classList.remove('on');
 $('#d-save').onclick = saveNC;
 $('#d-respond-save').onclick = () => saveResponse(false);
 $('#d-respond-ready').onclick = () => saveResponse(true);
+$('#d-letter-gen').onclick = () => { if(!CUR) return; $('#d-letter-draft').value = generateLetter(CUR); toast('Draft generated — review & edit'); };
+$('#d-letter-copy').onclick = () => { navigator.clipboard.writeText($('#d-letter-draft').value || '').then(()=>toast('Letter copied')); };
+$('#d-letter-save').onclick = async () => {
+  if(!CUR) return; const btn=$('#d-letter-save'); btn.disabled=true; btn.textContent='Saving…';
+  try{
+    const r = await fetch(API, { method:'PATCH', headers: authHeaders(), body: JSON.stringify({ id: CUR.id, fields: { 'Response Letter Draft': $('#d-letter-draft').value } }) });
+    const j = await r.json(); if(!j.ok) throw new Error(j.error || 'save failed');
+    cache([j.record]); toast('Draft saved');
+  }catch(e){ toast('Not saved — ' + e.message); }
+  finally{ btn.disabled=false; btn.textContent='Save draft'; }
+};
+$('#d-letter-file').addEventListener('change', async e => {
+  if(!CUR) return; const files=[...e.target.files]; e.target.value='';
+  for(const file of files){
+    const ph=document.createElement('div'); ph.className='thumb-pending'; ph.textContent='…'; $('#d-letter-scan').appendChild(ph);
+    try{ const url=await uploadRespondFile(file); LETTER_SCAN.push({ url, filename:file.name }); renderLetterScan(); }
+    catch(err){ ph.textContent='!'; ph.title=err.message; }
+  }
+  try{
+    const r = await fetch(API, { method:'PATCH', headers: authHeaders(), body: JSON.stringify({ id: CUR.id, fields: { 'Provincial Response Letter': LETTER_SCAN.map(a => a.id ? { id: a.id } : { url: a.url }) } }) });
+    const j = await r.json(); if(j.ok){ cache([j.record]); toast('Signed scan saved'); } else toast('Scan not saved — ' + (j.error||''));
+  }catch(err){ toast('Scan not saved — ' + err.message); }
+});
+$('#d-letter-sent').onclick = async () => {
+  if(!CUR) return; const btn=$('#d-letter-sent'); btn.disabled=true; btn.textContent='Saving…';
+  const fields={ 'Status':'Letter Sent' }; const dt=$('#d-letter-date').value; if(dt) fields['Letter Date Sent']=dt;
+  try{
+    const r = await fetch(API, { method:'PATCH', headers: authHeaders(), body: JSON.stringify({ id: CUR.id, fields }) });
+    const j = await r.json(); if(!j.ok) throw new Error(j.error || 'save failed');
+    cache([j.record]); toast('Marked letter sent'); $('#dv').classList.remove('on'); applyFilters(); refreshStats();
+  }catch(e){ toast('Not saved — ' + e.message); }
+  finally{ btn.disabled=false; btn.textContent='Mark letter sent'; }
+};
 $('#d-plan-add').onclick = () => { PLAN.push({ step:'', due:'', done:false }); renderPlan(); };
 $('#d-plan-save').onclick = savePlan;
 $('#d-plan-followup').onclick = sendFollowupEmail;
