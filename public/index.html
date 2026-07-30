@@ -24,6 +24,8 @@ button{font:inherit}
 main{max-width:1180px;margin:0 auto;padding:16px 20px 60px}
 .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:4px 0 14px}
 @media(max-width:720px){.kpis{grid-template-columns:1fr 1fr}}
+#kpis{grid-template-columns:repeat(3,1fr)}
+@media(max-width:720px){#kpis{grid-template-columns:1fr 1fr}}
 .kpi{background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 16px;cursor:pointer}
 .kpi b{font-size:22px;display:block}
 .kpi span{font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:700}
@@ -429,9 +431,7 @@ async function sendFollowupEmail(){
 
 function renderKpis(){
   const s = STATS;
-  $('#kpis').innerHTML = ['open','overdue','major','closed'].map(()=>'' ).join('') || '';
   $('#kpis').innerHTML = `
-    <div class="kpi" data-k="open"><b>${s?s.open.toLocaleString():'…'}</b><span>Open NCs</span></div>
     <div class="kpi over" data-k="overdue"><b>${s?s.overdue.toLocaleString():'…'}</b><span>Overdue</span></div>
     <div class="kpi major" data-k="major"><b>${s?s.majorOpen.toLocaleString():'…'}</b><span>Major open</span></div>
     <div class="kpi done" data-k="closed"><b>${s?s.closed.toLocaleString():'…'}</b><span>Closed</span></div>`;
@@ -446,17 +446,17 @@ function renderKpis(){
 function renderSrc(){
   const s = STATS;
   const groups = [
-    { cls:'prov', label:'Provincial NCs', src:'Provincial Audit', g: s && s.provincial },
-    { cls:'int',  label:'Internal NCs',   src:'Internal Audit',   g: s && s.internal },
+    { cls:'prov', label:'Provincial NCs — Open', src:'Provincial Audit', g: s && s.provincial },
+    { cls:'int',  label:'Internal NCs — Open',   src:'Internal Audit',   g: s && s.internal },
   ];
   $('#srcsplit').innerHTML = groups.map(o => `
     <div class="srctile ${o.cls}" data-src="${o.src}">
       <span>${o.label}</span>
-      <b>${o.g ? o.g.total.toLocaleString() : '…'}</b>
-      <em>${o.g ? o.g.open.toLocaleString() : '…'} open</em>
+      <b>${o.g ? o.g.open.toLocaleString() : '…'}</b>
+      <em>of ${o.g ? o.g.total.toLocaleString() : '…'} total</em>
     </div>`).join('');
   document.querySelectorAll('.srctile').forEach(t => t.onclick = () => {
-    $('#f-source').value = t.dataset.src; $('#f-status').value = ''; $('#f-class').value = ''; applyFilters();
+    $('#f-source').value = t.dataset.src; $('#f-status').value = 'open'; $('#f-class').value = ''; applyFilters();
   });
 }
 
