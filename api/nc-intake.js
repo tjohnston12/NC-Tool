@@ -8,10 +8,16 @@
  * POST /api/nc-intake
  *   headers: x-intake-key: <INTAKE_SECRET>
  *   body: {
- *     "notices":  [ { "nc":"OMNCN1124", "standard":"", "dateRaised":"", "dueDate":"", "description":"", "noticeUrl":"" } ],  // -> Non Conformances
- *     "audits":   [ { "report":"OWFFM0064", "date":"", "result":"", "standard":"", "division":"", "notes":"", "reportUrl":"" } ], // -> Audit Reports
- *     "closures": [ { "nc":"OMNCN1073", "effectiveDate":"2026-05-19", "closureUrl":"" } ]   // -> close matching Non Conformance
+ *     "notices":  [ { "nc":"OMNCN1124", "standard":"", "dateRaised":"", "dueDate":"", "description":"", "noticeUrl":"", "noticePdf":"" } ],  // -> Non Conformances
+ *     "audits":   [ { "report":"OWFFM0064", "date":"", "result":"", "standard":"", "division":"", "notes":"", "reportUrl":"", "reportPdf":"" } ], // -> Audit Reports
+ *     "closures": [ { "nc":"OMNCN1073", "effectiveDate":"2026-05-19", "closureUrl":"", "closurePdf":"" } ]   // -> close matching Non Conformance
  *   }
+ *
+ * PDF vs link: pass a *Pdf field (noticePdf / reportPdf / closurePdf) with a
+ * fetchable URL to the email/notice rendered as PDF (SharePoint or Cloudinary) and
+ * it is stored as a real copy on the record's Files attachment field — Airtable
+ * downloads and keeps it. The *Url fields still write the plain link (Attachment
+ * URLs / Notes) as a fallback. Prefer the PDF for issuance (NCN/DEF) and closures.
  *
  * Idempotent: notices/audits whose key exists are skipped; a closure whose NCN
  * is already Closed is skipped. Safe to re-run.
@@ -84,6 +90,8 @@ async function importNotices(list) {
       if (n.description) fields['Description'] = n.description;
       if (n.sourceReference) fields['Source Reference'] = n.sourceReference;
       if (n.noticeUrl) fields['Attachment URLs'] = n.noticeUrl;
+      // Store a real PDF copy of the notice on the Files field when supplied.
+      if (n.noticePdf) fields['Files'] = [{ url: n.noticePdf, filename: `${nc} - notice.pdf` }];
       const j = await at(AT_NC, 'POST', { records: [{ fields }], typecast: true });
       created.push({ nc, id: j.records[0].id });
     } catch (e) { errors.push({ key: nc, error: e.message }); }
@@ -109,6 +117,7 @@ async function importAudits(list) {
       if (isDate(a.date)) fields['Date'] = a.date;
       if (a.standard) fields['Standard'] = a.standard;
       if (a.division) fields['Division'] = a.division;
+      if (a.reportPdf) fields['Files'] = [{ url: a.reportPdf, filename: `${report}.pdf` }];
       const j = await at(AT_AUDIT, 'POST', { records: [{ fields }], typecast: true });
       created.push({ report, id: j.records[0].id });
     } catch (e) { errors.push({ key: report, error: e.message }); }
@@ -135,6 +144,11 @@ async function importClosures(list) {
       if (c.closureUrl) {
         const cur = f['Attachment URLs'] || '';
         fields['Attachment URLs'] = cur.includes(c.closureUrl) ? cur : (cur ? `${cur}\n${c.closureUrl}` : c.closureUrl);
+      }
+      // Store a real PDF copy of the closure email, preserving any existing Files.
+      if (c.closurePdf) {
+        const existing = Array.isArray(f['Files']) ? f['Files'].map(a => ({ id: a.id })) : [];
+        fields['Files'] = [...existing, { url: c.closurePdf, filename: `${nc} - closure ${eff}.pdf` }];
       }
       await at(`${AT_NC}/${rec.id}`, 'PATCH', { fields, typecast: true });
       closed.push(nc);

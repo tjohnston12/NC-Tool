@@ -239,7 +239,10 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
         <div class="fieldrow"><label class="f">Date verified</label><input type="date" id="d-verdate"></div>
         <div class="fieldrow"><label class="f">Date closed</label><input type="date" id="d-closed"></div>
       </div>
-      <div class="fieldrow"><label class="f">Verification notes (evidence of effectiveness)</label><textarea id="d-vernotes"></textarea></div></div>
+      <div class="fieldrow"><label class="f">Verification notes (evidence of effectiveness)</label><textarea id="d-vernotes"></textarea></div>
+      <label class="f" style="margin-top:6px">Closure notice from NBHC (PDF)</label>
+      <div class="thumbs" id="d-closure-scan"></div>
+      <label class="photo-btn" id="d-closure-upload-label"><input type="file" id="d-closure-file" accept="application/pdf,image/*" multiple hidden> + Upload closure notice</label></div>
 
     <div class="stage respond" id="d-respondbox"><h3>Respond — corrective response &amp; evidence</h3>
       <div class="respond-meta" id="d-respond-meta"></div>
@@ -485,6 +488,7 @@ function renderStandards(){
 }
 
 function renderRows(rows){
+  rows = rows.slice().sort((a,b)=>String(a['NC #']||'').localeCompare(String(b['NC #']||''), undefined, {numeric:true}));
   $('#rows').innerHTML = rows.length ? rows.map(n => `
     <tr data-id="${n.id}">
       <td><b>${esc(n['NC #']||'—')}</b><div class="small muted">${esc(n['Date Raised']||'')}</div></td>
@@ -529,6 +533,16 @@ function renderLetterScan(){
     const short = label.length > 12 ? label.slice(0,11)+'…' : label;
     return `<a href="${u}" target="_blank" rel="noopener" title="${esc(label)}">${isImg?`<img src="${u}">`:esc(short)}</a>`;
   }).join('') || '<span class="muted small">No signed scan uploaded yet.</span>';
+}
+let CLOSURE_SCAN = [];
+function renderClosureScan(){
+  const box = $('#d-closure-scan'); if(!box) return;
+  box.innerHTML = (CLOSURE_SCAN||[]).map(a => {
+    const u = a.url || a; const label = a.filename || 'closure notice';
+    const isImg = /(jpe?g|png|gif|webp)/i.test(label);
+    const short = label.length > 12 ? label.slice(0,11)+'…' : label;
+    return `<a href="${u}" target="_blank" rel="noopener" title="${esc(label)}">${isImg?`<img src="${u}">`:esc(short)}</a>`;
+  }).join('') || '<span class="muted small">No closure notice uploaded yet.</span>';
 }
 const isoOK = s => !!s && s.length>=10 && s[4]==='-' && s[7]==='-';
 function generateLetter(n){
@@ -627,6 +641,10 @@ function openNC(id){
       renderLetterScan();
     }
   }
+  // ---- Closure notice (NBHC) — admin upload ----
+  CLOSURE_SCAN = Array.isArray(n['Closure Notice']) ? n['Closure Notice'].slice() : [];
+  renderClosureScan();
+  $('#d-closure-upload-label').style.display = IS_ADMIN ? '' : 'none';
   $('#dv').classList.add('on');
 }
 
@@ -867,7 +885,7 @@ function renderReport(){
   renderTrend(computeMonthly(rows));
 }
 function reportCSV(){
-  const rows = reportFiltered();
+  const rows = reportFiltered().slice().sort((a,b)=>String(a['NC #']||'').localeCompare(String(b['NC #']||''), undefined, {numeric:true}));
   const cols=['NC #','Source','Notice Type','Status','Priority','Classification','Standard / Clause','Division','Responsible Person','Date Raised','Due Date','Date Closed'];
   const q = v => { const s=String(v==null?'':v).replace(/"/g,'""'); return /[",\n]/.test(s)?`"${s}"`:s; };
   const lines=[cols.join(',')].concat(rows.map(n=>cols.map(c=>q(n[c])).join(',')));
@@ -969,6 +987,18 @@ $('#d-respond-file').addEventListener('change', async e => {
     try{ const url = await uploadRespondFile(file); RESP_FILES.push(url); renderRespFiles(); }
     catch(err){ ph.textContent = '!'; ph.title = err.message; }
   }
+});
+$('#d-closure-file').addEventListener('change', async e => {
+  if(!CUR) return; const files=[...e.target.files]; e.target.value='';
+  for(const file of files){
+    const ph=document.createElement('div'); ph.className='thumb-pending'; ph.textContent='…'; $('#d-closure-scan').appendChild(ph);
+    try{ const url=await uploadRespondFile(file); CLOSURE_SCAN.push({ url, filename:file.name }); renderClosureScan(); }
+    catch(err){ ph.textContent='!'; ph.title=err.message; }
+  }
+  try{
+    const r = await fetch(API, { method:'PATCH', headers: authHeaders(), body: JSON.stringify({ id: CUR.id, fields: { 'Closure Notice': CLOSURE_SCAN.map(a => a.id ? { id: a.id } : { url: a.url }) } }) });
+    const j = await r.json(); if(j.ok){ cache([j.record]); toast('Closure notice saved'); } else toast('Not saved — ' + (j.error||''));
+  }catch(err){ toast('Not saved — ' + err.message); }
 });
 $('#d-addcomment').onclick = addComment;
 $('#d-comment').addEventListener('keydown', e => { if(e.key==='Enter') addComment(); });
