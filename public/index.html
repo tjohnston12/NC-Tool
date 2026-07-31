@@ -30,13 +30,13 @@ main{max-width:1180px;margin:0 auto;padding:16px 20px 60px}
 .kpi b{font-size:22px;display:block}
 .kpi span{font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:700}
 .kpi.over b{color:var(--bad)} .kpi.major b{color:var(--wine)} .kpi.done b{color:var(--good)}
-.srcsplit{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:4px 0 12px}
+.srcsplit{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:4px 0 12px}
 @media(max-width:720px){.srcsplit{grid-template-columns:1fr}}
 .srctile{background:#fff;border:1px solid var(--line);border-left:4px solid var(--line);border-radius:10px;padding:12px 16px;cursor:pointer}
 .srctile span{font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:700;display:block}
 .srctile b{font-size:24px;display:block;line-height:1.15}
 .srctile em{font-style:normal;font-size:12px;color:var(--muted)}
-.srctile.prov{border-left-color:var(--navy)} .srctile.int{border-left-color:var(--wine)}
+.srctile.prov{border-left-color:var(--navy)} .srctile.def{border-left-color:var(--amber)} .srctile.int{border-left-color:var(--wine)}
 .stdcard{background:#fff;border:1px solid var(--line);border-radius:10px;margin-bottom:14px;padding:12px 16px}
 .stdcard h2{font-size:13px;margin:0 0 10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--navy)}
 .stdbars{display:grid;grid-template-columns:1fr 1fr;gap:4px 22px}
@@ -143,7 +143,7 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
         <option>Corrective Action</option><option>Ready for Review</option><option>Letter Sent</option><option>Verification</option>
         <option>Closed</option><option>Cancelled</option>
       </select>
-      <select id="f-class"><option value="">Any class</option><option>Major</option><option>Minor</option><option>OFI</option></select>
+      <select id="f-class" style="display:none"><option value="">Any class</option><option>Major</option><option>Minor</option><option>OFI</option></select>
       <select id="f-source"><option value="">Any source</option><option>Quality Audit</option><option>Provincial Audit</option><option>ISO Audit</option><option>Internal Audit</option><option>Client / Contract</option><option>Other</option></select>
       <select id="f-division"><option value="">All divisions</option><option>Western</option><option>Eastern</option><option>Head Office</option></select>
       <select id="f-standard"><option value="">Any OMM standard</option></select>
@@ -153,7 +153,7 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
       <span class="muted small" id="list-count"></span>
     </div>
     <div class="tw"><table>
-      <thead><tr><th>NC #</th><th>Status</th><th>Class</th><th>Source</th><th>Clause / standard</th><th>Description</th><th>Division</th><th>Responsible</th><th>Due</th></tr></thead>
+      <thead><tr><th>NC #</th><th>Status</th><th>Source</th><th>Clause / standard</th><th>Description</th><th>Division</th><th>Responsible</th><th>Due</th></tr></thead>
       <tbody id="rows"></tbody>
     </table></div>
   </div>
@@ -182,13 +182,13 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
   <div class="cbody">
     <dl id="d-facts"></dl>
 
-    <div class="grid3">
+    <div class="grid2">
       <div class="fieldrow"><label class="f">Status</label>
         <select id="d-status"><option>New</option><option>Containment</option><option>Root Cause</option><option>Corrective Action</option><option>Ready for Review</option><option>Letter Sent</option><option>Verification</option><option>Closed</option><option>Cancelled</option></select></div>
-      <div class="fieldrow"><label class="f">Classification</label>
-        <select id="d-class"><option value=""></option><option>Major</option><option>Minor</option><option>OFI</option></select></div>
       <div class="fieldrow"><label class="f">Due date</label><input type="date" id="d-due"></div>
     </div>
+    <!-- Classification hidden for now (ISO Major/Minor/OFI) — kept in the DOM so its value is preserved and it can be re-shown later. -->
+    <select id="d-class" style="display:none"><option value=""></option><option>Major</option><option>Minor</option><option>OFI</option></select>
     <div class="grid2">
       <div class="fieldrow"><label class="f">Division</label>
         <select id="d-division"><option value=""></option><option>Western</option><option>Eastern</option><option>Head Office</option></select></div>
@@ -197,7 +197,7 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
     <div class="grid2">
       <div class="fieldrow"><label class="f">Priority</label>
         <select id="d-priority"><option value=""></option><option>Urgent</option><option>Important</option><option>Medium</option><option>Low</option></select></div>
-      <div class="fieldrow"><label class="f">Reviewers <span style="text-transform:none;font-weight:400;color:var(--muted)">— emailed to review; separate names with ;</span></label><input id="d-reviewers" type="text"></div>
+      <div class="fieldrow"><label class="f">Reviewers <span style="text-transform:none;font-weight:400;color:var(--muted)">— emailed to review; Ctrl / ⌘-click to pick more than one</span></label><select id="d-reviewers" multiple size="4"></select></div>
     </div>
 
     <div class="stage" id="d-planbox"><h3>Action plan <span style="text-transform:none;font-weight:400;color:var(--muted)">— steps toward correcting the NC; start within 5 working days of issue</span></h3>
@@ -259,11 +259,10 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
     <div class="fieldrow"><label class="f">Add a comment</label>
       <div style="display:flex;gap:8px"><input id="d-comment" type="text" placeholder="Stamped into the activity log…" style="flex:1;padding:8px 10px;border:1px solid var(--line);border-radius:8px">
       <button class="btn sm ghost" id="d-addcomment">Add</button></div></div>
-    <label class="f">Activity log</label>
-    <div class="log" id="d-log"></div>
   </div>
   <div class="btnrow">
     <button class="btn ghost" id="d-cancel">Close</button>
+    <button class="btn ghost" id="d-audit" style="display:none">📋 Audit file</button>
     <button class="btn" id="d-save" style="display:none">Save changes</button>
   </div>
 </div></div>
@@ -272,13 +271,13 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
 <div class="ov" id="nv"><div class="sheet">
   <header><h2>Raise a non-conformance</h2><div class="small">From a Quality, Provincial, ISO or other audit — the NC # is assigned automatically</div><button class="x" id="n-x">×</button></header>
   <div class="cbody">
-    <div class="grid3">
+    <div class="grid2">
       <div class="fieldrow"><label class="f">Source</label>
         <select id="n-source"><option>Quality Audit</option><option>Provincial Audit</option><option>ISO Audit</option><option>Internal Audit</option><option>Client / Contract</option><option>Other</option></select></div>
       <div class="fieldrow"><label class="f">Source reference (audit / report #)</label><input id="n-ref" type="text" placeholder="QA-20260715-001…"></div>
-      <div class="fieldrow"><label class="f">Classification</label>
-        <select id="n-class"><option>Major</option><option>Minor</option><option>OFI</option></select></div>
     </div>
+    <!-- Classification hidden for now — default blank so new NCs aren't forced to Major while hidden. -->
+    <select id="n-class" style="display:none"><option value="" selected></option><option>Major</option><option>Minor</option><option>OFI</option></select>
     <div class="fieldrow"><label class="f">NCN number <span style="text-transform:none;font-weight:400;color:var(--muted)" id="n-ncn-hint">— issued by the external auditor; leave blank for internal NCs (auto-assigned NC-YYYY-NNN)</span></label>
       <input id="n-ncn" type="text" placeholder="e.g. the NCN on the provincial / ISO report" style="max-width:360px"></div>
     <div class="grid3">
@@ -302,14 +301,8 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
 
 <!-- HELP -->
 <div class="ov" id="hv"><div class="sheet">
-  <header><h2>How NCs work</h2><div class="small">Classifications and the CAPA workflow</div><button class="x" id="h-x">×</button></header>
+  <header><h2>How NCs work</h2><div class="small">The CAPA workflow</div><button class="x" id="h-x">×</button></header>
   <div class="cbody" style="font-size:14px;line-height:1.55">
-    <label class="f">Classification</label>
-    <dl style="grid-template-columns:90px 1fr;margin-bottom:18px">
-      <dt><span class="pill c-Major">Major</span></dt><dd>A total breakdown of a requirement, or a systemic failure — jeopardizes the quality system or contract compliance. Priority attention.</dd>
-      <dt><span class="pill c-Minor">Minor</span></dt><dd>An isolated lapse against a requirement — the system works, but this instance didn't follow it.</dd>
-      <dt><span class="pill c-OFI">OFI</span></dt><dd>Opportunity For Improvement — not a non-conformance, but worth acting on before it becomes one.</dd>
-    </dl>
     <label class="f">CAPA workflow — every NC walks these stages</label>
     <dl style="grid-template-columns:150px 1fr">
       <dt><span class="pill s-New">New</span></dt><dd>Raised and awaiting action.</dd>
@@ -319,6 +312,16 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
       <dt><span class="pill s-Verification">Verification</span></dt><dd>An NC admin independently confirms the action worked, with evidence.</dd>
       <dt><span class="pill s-Closed">Closed</span></dt><dd>Verified effective. Only an NC admin can close (or cancel) an NC.</dd>
     </dl>
+  </div>
+</div></div>
+
+<!-- AUDIT FILE (admin only) — the append-only Activity Log for the record -->
+<div class="ov" id="av"><div class="sheet">
+  <header><h2>Audit file</h2><div class="small" id="a-sub"></div><button class="x" id="a-x">×</button></header>
+  <div class="cbody">
+    <div class="small muted" style="margin-bottom:8px">Append-only activity trail — every entry is stamped <code>[date time · user]</code> as work is done on this file.</div>
+    <div class="log" id="d-log"></div>
+    <div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn sm ghost" id="a-copy">Copy log</button></div>
   </div>
 </div></div>
 
@@ -372,6 +375,17 @@ function fillRespSelect(sel, current){
   sel.innerHTML = opts;
   sel.value = cur;
 }
+// Fill the Reviewers <select multiple> from the same manager list. Reviewers are stored
+// as a ';'-separated string; pre-select the saved names and keep any non-manager names
+// already on the record so saving never drops them.
+function fillReviewersSelect(sel, current){
+  const chosen = String(current || '').split(/;+/).map(s => s.trim()).filter(Boolean);
+  const all = MANAGERS.map(m => m.name);
+  chosen.forEach(c => { if (!all.includes(c)) all.push(c); });
+  sel.innerHTML = all.map(n => `<option value="${esc(n)}"${chosen.includes(n) ? ' selected' : ''}>${esc(n)}</option>`).join('');
+}
+// Read the chosen reviewers back into the stored ';'-separated form.
+function getReviewers(sel){ return Array.from(sel.selectedOptions).map(o => o.value).join('; '); }
 // The provincial audit report PDF for this NC — from native Files or the SharePoint links.
 function noticePdf(n){
   const nc = String(n['NC #'] || '');
@@ -451,17 +465,20 @@ function renderKpis(){
 function renderSrc(){
   const s = STATS;
   const groups = [
-    { cls:'prov', label:'Provincial NCs — Open', src:'Provincial Audit', g: s && s.provincial },
-    { cls:'int',  label:'Internal NCs — Open',   src:'Internal Audit',   g: s && s.internal },
+    { cls:'prov', label:'Provincial NCN — Open', src:'Provincial Audit', prefix:'OMNCN', g: s && s.provNCN },
+    { cls:'def',  label:'Provincial DEF — Open', src:'Provincial Audit', prefix:'OMDEF', g: s && s.provDEF },
+    { cls:'int',  label:'Internal NCs — Open',   src:'Internal Audit',   prefix:'',      g: s && s.internal },
   ];
   $('#srcsplit').innerHTML = groups.map(o => `
-    <div class="srctile ${o.cls}" data-src="${o.src}">
+    <div class="srctile ${o.cls}" data-src="${o.src}" data-prefix="${o.prefix}">
       <span>${o.label}</span>
       <b>${o.g ? o.g.open.toLocaleString() : '…'}</b>
       <em>of ${o.g ? o.g.total.toLocaleString() : '…'} total</em>
     </div>`).join('');
   document.querySelectorAll('.srctile').forEach(t => t.onclick = () => {
-    $('#f-source').value = t.dataset.src; $('#f-status').value = 'open'; $('#f-class').value = ''; applyFilters();
+    $('#f-source').value = t.dataset.src; $('#f-status').value = 'open'; $('#f-class').value = '';
+    $('#f-q').value = t.dataset.prefix || '';
+    applyFilters();
   });
 }
 
@@ -495,7 +512,6 @@ function renderRows(rows){
     <tr data-id="${n.id}">
       <td><b>${esc(n['NC #']||'—')}</b><div class="small muted">${esc(n['Date Raised']||'')}</div></td>
       <td>${pill(n.Status||'New','s-')}</td>
-      <td>${pill(n.Classification,'c-')}</td>
       <td class="small">${esc(n.Source||'—')}<div class="muted">${esc(n['Source Reference']||'')}</div></td>
       <td class="small">${esc(n['Standard / Clause']||'—')}</td>
       <td class="small">${esc(String(n.Description||'').slice(0,110))}${String(n.Description||'').length>110?'…':''}</td>
@@ -503,7 +519,7 @@ function renderRows(rows){
       <td class="small">${esc(n['Responsible Person']||'—')}</td>
       <td class="${isOverdue(n)?'overdue':''}">${esc(n['Due Date']||'—')}</td>
     </tr>`).join('')
-    : `<tr><td colspan="9" class="empty">No non-conformances match.</td></tr>`;
+    : `<tr><td colspan="8" class="empty">No non-conformances match.</td></tr>`;
   document.querySelectorAll('#rows tr[data-id]').forEach(tr => tr.onclick = () => openNC(tr.dataset.id));
 }
 
@@ -610,7 +626,20 @@ function printWindow(innerHtml, title, waitForImg){
 function printLetter(){
   const txt=$('#d-letter-draft').value||'';
   if(!txt.trim()){ toast('Nothing to print — generate or paste the letter first'); return; }
-  printWindow(`<div class="lp">${esc(txt)}</div>`, ((CUR&&CUR['NC #'])||'NC')+' — response letter', false);
+  const w=window.open('','_blank','width=850,height=1100');
+  if(!w){ toast('Allow pop-ups to print'); return; }
+  const title=((CUR&&CUR['NC #'])||'NC')+' — response letter';
+  // Centred on the page (vertically + horizontally) so the body sits between a
+  // pre-printed letterhead header and footer. Text stays left-aligned inside the block.
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>
+    @page{margin:2.5cm}
+    html,body{height:100%}
+    body{font-family:'Times New Roman',Times,serif;color:#111;margin:0}
+    .sheet{min-height:100vh;display:flex;flex-direction:column;justify-content:center}
+    .lp{white-space:pre-wrap;font-size:12pt;line-height:1.55;max-width:16.5cm;width:100%;margin:0 auto}
+  </style></head><body><div class="sheet"><div class="lp">${esc(txt)}</div></div></body></html>`);
+  w.document.close(); w.focus();
+  setTimeout(()=>{ w.focus(); w.print(); }, 200);
 }
 function printPhoto(url){ printWindow(`<img src="${esc(url)}">`, 'Repair photo', true); }
 const isoOK = s => !!s && s.length>=10 && s[4]==='-' && s[7]==='-';
@@ -633,7 +662,7 @@ function generateLetter(n){
   const proof = hasFiles ? 'Please find attached a photo of the repairs as proof.' : 'Please find attached our response and supporting documentation as proof.';
   const L=[longD(today()),''];
   ['Mr. Mark Scott','Project Manager, NBHC/Provincial Advisor','NBHC','PO Box 6000','Fredericton, NB  E3B 5H1'].forEach(x=>L.push(x));
-  L.push('','Re: Non-Conformance Notice '+num,'','Dear Sir :','',ack,'',ca,'',proof,'','MRDC respectfully requests that '+num+' be closed.','','MRDC OPERATIONS CORPORATION','','Jason Greeley, P. Eng.','Deputy General Manager','','Encl.','TJ');
+  L.push('','Re: Non-Conformance Notice '+num,'','Dear Sir :','',ack,'',ca,'',proof,'','MRDC respectfully requests that '+num+' be closed.','','MRDC OPERATIONS CORPORATION','','','','','Jason Greeley, P. Eng.','Deputy General Manager','','Encl.','TJ');
   return L.join('\n');
 }
 function openNC(id){
@@ -653,7 +682,7 @@ function openNC(id){
     ${n['Attachment URLs'] ? `<dt>Links</dt><dd>${String(n['Attachment URLs']).split(/\n+/).filter(Boolean).map((u,i)=>`<a href="${linkUrl(u)}" target="_blank" rel="noopener">file ${i+1}</a>`).join(' · ')}</dd>` : ''}`;
   setV('#d-status', n.Status || 'New'); setV('#d-class', n.Classification);
   setV('#d-due', n['Due Date']); setV('#d-division', n.Division); fillRespSelect($('#d-resp'), n['Responsible Person']);
-  setV('#d-priority', n.Priority); setV('#d-reviewers', n['Reviewers']);
+  setV('#d-priority', n.Priority); fillReviewersSelect($('#d-reviewers'), n['Reviewers']);
   setV('#d-contain', n['Containment Action']); setV('#d-root', n['Root Cause']);
   setV('#d-corrective', n['Corrective Action']); setV('#d-preventive', n['Preventive Action']);
   setV('#d-done', n['Date Action Completed']);
@@ -666,6 +695,7 @@ function openNC(id){
   $('#d-verifybox').style.display = '';
   document.querySelectorAll('#d-verifybox input, #d-verifybox textarea').forEach(el => el.disabled = !IS_ADMIN);
   $('#d-save').style.display = editable ? '' : 'none';
+  $('#d-audit').style.display = IS_ADMIN ? '' : 'none';   // audit file — admins only
   $('#d-comment').disabled = !CAN_WORK; $('#d-addcomment').disabled = !CAN_WORK;
   // ---- Respond section ----
   const uname = String(USER.name || '').toLowerCase();
@@ -726,7 +756,7 @@ async function saveNC(){
     'Status': $('#d-status').value, 'Classification': $('#d-class').value || null,
     'Due Date': $('#d-due').value || null, 'Division': $('#d-division').value || null,
     'Responsible Person': $('#d-resp').value,
-    'Priority': $('#d-priority').value || null, 'Reviewers': $('#d-reviewers').value,
+    'Priority': $('#d-priority').value || null, 'Reviewers': getReviewers($('#d-reviewers')),
     'Containment Action': $('#d-contain').value, 'Root Cause': $('#d-root').value,
     'Corrective Action': $('#d-corrective').value, 'Preventive Action': $('#d-preventive').value,
     'Date Action Completed': $('#d-done').value || null,
@@ -753,7 +783,7 @@ async function addComment(){
     const r = await fetch(API, { method:'POST', headers: authHeaders(), body: JSON.stringify({ action:'comment', id: CUR.id, text }) });
     const j = await r.json();
     if(!j.ok) throw new Error(j.error||'failed');
-    cache([j.record]); $('#d-log').textContent = j.record['Activity Log'] || '—';
+    cache([j.record]); CUR = j.record; $('#d-log').textContent = j.record['Activity Log'] || '—';
     $('#d-comment').value=''; toast('Comment added');
   }catch(e){ toast('Comment failed — ' + e.message); }
 }
@@ -973,7 +1003,7 @@ function renderReport(){
 }
 function reportCSV(){
   const rows = reportFiltered().slice().sort((a,b)=>String(a['NC #']||'').localeCompare(String(b['NC #']||''), undefined, {numeric:true}));
-  const cols=['NC #','Source','Notice Type','Status','Priority','Classification','Standard / Clause','Division','Responsible Person','Date Raised','Due Date','Date Closed'];
+  const cols=['NC #','Source','Notice Type','Status','Priority','Standard / Clause','Division','Responsible Person','Date Raised','Due Date','Date Closed'];
   const q = v => { const s=String(v==null?'':v).replace(/"/g,'""'); return /[",\n]/.test(s)?`"${s}"`:s; };
   const lines=[cols.join(',')].concat(rows.map(n=>cols.map(c=>q(n[c])).join(',')));
   const blob=new Blob([lines.join('\n')],{type:'text/csv'});
@@ -1028,6 +1058,18 @@ $('#g-help').onclick = () => $('#hv').classList.add('on');
 $('#d-x').onclick = $('#d-cancel').onclick = () => $('#dv').classList.remove('on');
 $('#n-x').onclick = $('#n-cancel').onclick = () => $('#nv').classList.remove('on');
 $('#h-x').onclick = () => $('#hv').classList.remove('on');
+// Audit file (admin only) — open the record's activity log in its own window.
+$('#d-audit').onclick = () => {
+  if (!IS_ADMIN || !CUR) return;
+  $('#a-sub').textContent = `${CUR['NC #'] || ''} — activity log`;
+  $('#d-log').textContent = CUR['Activity Log'] || '—';
+  $('#av').classList.add('on');
+};
+$('#a-x').onclick = () => $('#av').classList.remove('on');
+$('#a-copy').onclick = async () => {
+  try { await navigator.clipboard.writeText($('#d-log').textContent || ''); toast('Audit log copied'); }
+  catch(_){ toast('Could not copy'); }
+};
 $('#d-save').onclick = saveNC;
 $('#d-respond-save').onclick = () => saveResponse(false);
 $('#d-respond-ready').onclick = () => saveResponse(true);
@@ -1096,7 +1138,7 @@ $('#d-closure-file').addEventListener('change', async e => {
 });
 $('#d-addcomment').onclick = addComment;
 $('#d-comment').addEventListener('keydown', e => { if(e.key==='Enter') addComment(); });
-['dv','nv','hv'].forEach(id => $('#'+id).addEventListener('click', e => { if(e.target.id===id) $('#'+id).classList.remove('on'); }));
+['dv','nv','hv','av'].forEach(id => $('#'+id).addEventListener('click', e => { if(e.target.id===id) $('#'+id).classList.remove('on'); }));
 
 (async function init(){
   let user = null;

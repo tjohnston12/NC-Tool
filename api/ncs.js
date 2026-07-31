@@ -63,6 +63,8 @@ const ADMIN_FIELDS = new Set([
   'Verified By', 'Date Verified', 'Verification Notes', 'Date Closed',
   // Province response-letter stage (admin / Troy only)
   'Response Letter Draft', 'Letter Date Sent', 'Provincial Response Letter',
+  // NBHC closure notice uploaded on the verification & closure section (admin only)
+  'Closure Notice',
 ]);
 // Fields the assigned responder (matched by name) may write on their own NC,
 // even without Manager/Admin rights.
@@ -73,6 +75,77 @@ const RESPONDER_STATUSES = ['Ready for Review'];
 
 const esc = s => String(s).replace(/'/g, "\\'");
 const today = () => new Date().toISOString().slice(0, 10);
+const nowStamp = () => new Date().toISOString().slice(0, 16).replace('T', ' ');
+
+// ── Audit log helpers ──────────────────────────────────────────────────────
+// Fields short enough to record the actual value change (old → new) in the log.
+const AUDIT_VALUE_FIELDS = new Set([
+  'Status', 'Priority', 'Responsible Person', 'Division', 'Classification', 'Reviewers',
+  'Due Date', 'Date Raised', 'Raised By', 'Date Action Completed', 'Date Verified',
+  'Date Closed', 'Verified By', 'Letter Date Sent', 'Action Plan Started',
+  'Source', 'Source Reference', 'Standard / Clause',
+]);
+// Attachment fields — record uploads/removals by filename (Response Files is a
+// newline URL list and is handled alongside these).
+const AUDIT_FILE_FIELDS = new Set(['Files', 'Provincial Response Letter', 'Closure Notice']);
+
+const basename = u => { try { return decodeURIComponent(String(u).split('/').pop().split('?')[0]); } catch { return String(u).split('/').pop(); } };
+
+// Work out what changed on a file/attachment field for the audit line.
+function auditFileChange(k, oldV, newV) {
+  if (k === 'Response Files') {                       // newline-delimited URL text
+    const before = new Set(String(oldV || '').split(/\n+/).map(s => s.trim()).filter(Boolean).map(basename));
+    const afterNames = String(newV || '').split(/\n+/).map(s => s.trim()).filter(Boolean).map(basename);
+    const added = afterNames.filter(n => !before.has(n));
+    const removed = [...before].filter(n => !afterNames.includes(n)).length;
+    return { label: 'Response files', added, removed };
+  }
+  // multipleAttachments: new uploads arrive as {url} (no id); kept ones as {id}.
+  const arr = Array.isArray(newV) ? newV : [];
+  const added = arr.filter(a => a && a.url && !a.id).map(a => basename(a.url));
+  const keptIds = new Set(arr.filter(a => a && a.id).map(a => a.id));
+  const removed = (Array.isArray(oldV) ? oldV : []).filter(a => a && a.id && !keptIds.has(a.id)).length;
+  return { label: k, added, removed };
+}
+
+// Human-readable, tamper-evident diff for the Activity Log. Short fields show the
+// value change; long text/JSON is noted as "edited"; files list what was uploaded.
+function auditDiff(curFields, fields) {
+  const parts = [];
+  for (const k of Object.keys(fields)) {
+    if (k === 'Activity Log') continue;
+    const oldV = curFields[k], newV = fields[k];
+    if (k === 'Response Files' || AUDIT_FILE_FIELDS.has(k)) {
+      const { label, added, removed } = auditFileChange(k, oldV, newV);
+      if (added.length) parts.push(`${label}: uploaded ${added.join(', ')}`);
+      if (removed) parts.push(`${label}: removed ${removed} file${removed > 1 ? 's' : ''}`);
+      if (!added.length && !removed) parts.push(`${label} updated`);
+      continue;
+    }
+    if (AUDIT_VALUE_FIELDS.has(k)) {
+      const o = (oldV == null || oldV === '') ? '—' : String(oldV);
+      const n = (newV == null || newV === '') ? '—' : String(newV);
+      if (o !== n) parts.push(`${k}: ${o} → ${n}`);
+      continue;
+    }
+    parts.push(`${k} edited`);                        // long text / JSON — no content dump
+  }
+  return parts;
+}
+
+// Append one stamped line to a record's Activity Log (used for email dispatch trails).
+async function appendLog(id, curLog, line, who) {
+  const log = [String(curLog || '').trim(), `[${nowStamp()} · ${who || 'system'}] ${line}`].filter(Boolean).join('\n');
+  await at(`${AT}/${id}`, 'PATCH', { fields: { 'Activity Log': log } });
+  return log;
+}
+// Turn a notifyAssignment result into an audit line, e.g. "notified responder Jane Doe <j@x>".
+function emailLogLine(sent) {
+  const bits = [];
+  (sent.responders || []).forEach(r => bits.push(`responder ${r.name} <${r.email}>`));
+  (sent.reviewers  || []).forEach(r => bits.push(`reviewer ${r.name} <${r.email}>`));
+  return bits.length ? `notified ${bits.join(', ')}` : '';
+}
 
 async function at(url, method = 'GET', body) {
   const res = await fetch(url, { method, headers: HDR, body: body ? JSON.stringify(body) : undefined });
@@ -132,13 +205,14 @@ function splitStandards(s) {
 async function stats() {
   const acc = { total: 0, open: 0, overdue: 0, majorOpen: 0, closed: 0,
     provincial: { total: 0, open: 0 }, internal: { total: 0, open: 0 },
+    provNCN: { total: 0, open: 0 }, provDEF: { total: 0, open: 0 },
     bySource: {}, byClassification: {}, byDivision: {}, byStatus: {}, byStandard: {} };
   const t = today();
   let offset;
   do {
     const p = new URLSearchParams();
     p.set('pageSize', '100');
-    ['Status', 'Classification', 'Source', 'Division', 'Due Date', 'Standard / Clause'].forEach(f => p.append('fields[]', f));
+    ['Status', 'Classification', 'Source', 'Division', 'Due Date', 'Standard / Clause', 'Notice Type'].forEach(f => p.append('fields[]', f));
     if (offset) p.set('offset', offset);
     const json = await at(`${AT}?${p.toString()}`);
     for (const r of json.records) {
@@ -148,7 +222,12 @@ async function stats() {
       acc.byStatus[st] = (acc.byStatus[st] || 0) + 1;
       // Provincial vs Internal split — strictly by audit Source (other sources in neither)
       const src = f['Source'];
-      if (src === 'Provincial Audit') { acc.provincial.total++; if (!TERMINAL.includes(st)) acc.provincial.open++; }
+      if (src === 'Provincial Audit') {
+        acc.provincial.total++; if (!TERMINAL.includes(st)) acc.provincial.open++;
+        // Split provincial by instrument: Defect Notice (DEF) vs Non-Conformance Notice (NCN, the default).
+        const bucket = (f['Notice Type'] === 'Defect Notice') ? acc.provDEF : acc.provNCN;
+        bucket.total++; if (!TERMINAL.includes(st)) bucket.open++;
+      }
       else if (src === 'Internal Audit') { acc.internal.total++; if (!TERMINAL.includes(st)) acc.internal.open++; }
       if (!TERMINAL.includes(st)) {
         acc.open++;
@@ -262,33 +341,38 @@ async function notifyAssignment({ ncNo, appUrl, oldFields, newFields, actor }) {
   const respAdded = (newResp && newResp.toLowerCase() !== oldResp.toLowerCase()) ? [newResp] : [];
   const oldRev = new Set(splitNames(oldFields['Reviewers']).map(x => x.toLowerCase()));
   const revAdded = ('Reviewers' in newFields) ? splitNames(newFields['Reviewers']).filter(n => !oldRev.has(n.toLowerCase())) : [];
-  if (!respAdded.length && !revAdded.length) return;
+  const sent = { responders: [], reviewers: [] };
+  if (!respAdded.length && !revAdded.length) return sent;
   const emails = await emailsForNames([...respAdded, ...revAdded]);
   const link = appUrl ? `${appUrl}/?nc=${encodeURIComponent(ncNo)}` : '';
   const btn = link ? `<p><a href="${link}" style="background:#1E2B5E;color:#fff;padding:9px 16px;border-radius:8px;text-decoration:none;font-weight:600">Open ${ncNo}</a></p>` : '';
   const by = actor ? ` by ${actor}` : '';
   for (const name of respAdded) {
     const to = emails[name.toLowerCase()]; if (!to) continue;
-    await sendMail(to, `NC ${ncNo} — assigned to you to respond`,
-      `<p>Hi ${name.split(' ')[0]},</p><p>You have been assigned to respond to non-conformance <b>${ncNo}</b>${by}. Please review it, work through the response checklist, and upload your completed response sheet and any photos of the repair.</p>${btn}`);
+    if (await sendMail(to, `NC ${ncNo} — assigned to you to respond`,
+      `<p>Hi ${name.split(' ')[0]},</p><p>You have been assigned to respond to non-conformance <b>${ncNo}</b>${by}. Please review it, work through the response checklist, and upload your completed response sheet and any photos of the repair.</p>${btn}`))
+      sent.responders.push({ name, email: to });
   }
   for (const name of revAdded) {
     const to = emails[name.toLowerCase()]; if (!to) continue;
-    await sendMail(to, `NC ${ncNo} — for your review`,
-      `<p>Hi ${name.split(' ')[0]},</p><p>You have been added as a reviewer on non-conformance <b>${ncNo}</b>${by}. You can open it to read and review the response.</p>${btn}`);
+    if (await sendMail(to, `NC ${ncNo} — for your review`,
+      `<p>Hi ${name.split(' ')[0]},</p><p>You have been added as a reviewer on non-conformance <b>${ncNo}</b>${by}. You can open it to read and review the response.</p>${btn}`))
+      sent.reviewers.push({ name, email: to });
   }
+  return sent;
 }
 
 // Provincial NC only: when the response is marked "Ready for Review", email the NC
 // admin (Troy) that the manager's response is in and a Province response letter is needed.
 async function notifyResponseReady({ ncNo, appUrl, actor }) {
   const to = ADMIN_EMAIL;
-  if (!to) return false;
+  if (!to) return null;
   const link = appUrl ? `${appUrl}/?nc=${encodeURIComponent(ncNo)}` : '';
   const btn = link ? `<p><a href="${link}" style="background:#1E2B5E;color:#fff;padding:9px 16px;border-radius:8px;text-decoration:none;font-weight:600">Open ${ncNo}</a></p>` : '';
   const by = actor ? ` (submitted by ${actor})` : '';
-  return await sendMail(to, `NC ${ncNo} — response ready, Province letter needed`,
+  const ok = await sendMail(to, `NC ${ncNo} — response ready, Province letter needed`,
     `<p>The response for provincial non-conformance <b>${ncNo}</b> is ready for your review${by}.</p><p>Please review the manager's response and documents, then draft, sign and mail the Province response letter, and upload the signed scan.</p>${btn}`);
+  return ok ? to : null;
 }
 
 // Add N working days (Mon–Fri) to an ISO date string. Holidays are not accounted for.
@@ -321,9 +405,9 @@ async function sendFollowup({ ncNo, fields, appUrl, actor }) {
   const btn = link ? `<p><a href="${link}" style="background:#1E2B5E;color:#fff;padding:9px 16px;border-radius:8px;text-decoration:none;font-weight:600">Open ${ncNo}</a></p>` : '';
   const by = actor ? ` (sent by ${actor})` : '';
   const html = `<p>Follow-up on non-conformance <b>${ncNo}</b>${by}.</p><p>${statusLine}</p><p><b>Action plan:</b></p>${stepsHtml}${btn}`;
-  let ok = false;
-  for (const addr of uniq) { if (await sendMail(addr, `NC ${ncNo} — action plan follow-up`, html)) ok = true; }
-  return ok;
+  const recipients = [];
+  for (const addr of uniq) { if (await sendMail(addr, `NC ${ncNo} — action plan follow-up`, html)) recipients.push(addr); }
+  return { ok: recipients.length > 0, recipients };
 }
 
 module.exports = async (req, res) => {
@@ -375,13 +459,11 @@ module.exports = async (req, res) => {
         if (!body.id) { res.status(400).json({ ok: false, error: 'id is required' }); return; }
         const cur = await at(`${AT}/${body.id}`);
         const host = req.headers['x-forwarded-host'] || req.headers.host;
-        const sent = await sendFollowup({ ncNo: cur.fields['NC #'] || body.id, fields: cur.fields, appUrl: host ? `https://${host}` : '', actor: userName });
-        if (sent) {
-          const stamp = `[${new Date().toISOString().slice(0, 16).replace('T', ' ')} · ${userName || 'unknown'}]`;
-          const log = [(cur.fields['Activity Log'] || '').trim(), `${stamp} action-plan follow-up email sent`].filter(Boolean).join('\n');
-          await at(`${AT}/${body.id}`, 'PATCH', { fields: { 'Activity Log': log } });
+        const result = await sendFollowup({ ncNo: cur.fields['NC #'] || body.id, fields: cur.fields, appUrl: host ? `https://${host}` : '', actor: userName });
+        if (result.ok) {
+          await appendLog(body.id, cur.fields['Activity Log'], `action-plan follow-up email sent to ${result.recipients.join(', ')}`, userName);
         }
-        res.status(sent ? 200 : 500).json({ ok: sent, error: sent ? undefined : 'Email not sent — check RESEND_API_KEY / recipient emails' });
+        res.status(result.ok ? 200 : 500).json({ ok: result.ok, error: result.ok ? undefined : 'Email not sent — check RESEND_API_KEY / recipient emails' });
         return;
       }
 
@@ -417,7 +499,11 @@ module.exports = async (req, res) => {
       fields['Activity Log'] = `${stamp} NC raised`;
       const j = await at(AT, 'POST', { records: [{ fields }], typecast: true });
       const host = req.headers['x-forwarded-host'] || req.headers.host;
-      try { await notifyAssignment({ ncNo: fields['NC #'], appUrl: host ? `https://${host}` : '', oldFields: {}, newFields: fields, actor: userName }); } catch (_) {}
+      try {
+        const sent = await notifyAssignment({ ncNo: fields['NC #'], appUrl: host ? `https://${host}` : '', oldFields: {}, newFields: fields, actor: userName });
+        const line = emailLogLine(sent || {});
+        if (line) await appendLog(j.records[0].id, j.records[0].fields['Activity Log'], line, userName);
+      } catch (_) {}
       res.status(200).json({ ok: true, record: { id: j.records[0].id, ...j.records[0].fields } });
       return;
     }
@@ -465,22 +551,30 @@ module.exports = async (req, res) => {
       }
       if (!Object.keys(fields).length) { res.status(400).json({ ok: false, error: 'no editable fields in request', rejected }); return; }
 
-      // Stamp the change into the Activity Log.
-      const stamp = `[${new Date().toISOString().slice(0, 16).replace('T', ' ')} · ${userName || 'unknown'}]`;
-      const changed = Object.keys(fields).join(', ');
-      const log = [(curFields['Activity Log'] || '').trim(), `${stamp} updated: ${changed}`].filter(Boolean).join('\n');
+      // Stamp the change into the Activity Log — value-level, tamper-evident diff.
+      const diffs = auditDiff(curFields, fields);
+      const summary = diffs.length ? diffs.join('; ') : 'saved (no field changes)';
+      const log = [(curFields['Activity Log'] || '').trim(), `[${nowStamp()} · ${userName || 'unknown'}] ${summary}`].filter(Boolean).join('\n');
       fields['Activity Log'] = log;
 
       const j = await at(`${AT}/${body.id}`, 'PATCH', { fields, typecast: true });
       const host = req.headers['x-forwarded-host'] || req.headers.host;
-      try { await notifyAssignment({ ncNo: j.fields['NC #'] || curFields['NC #'] || body.id, appUrl: host ? `https://${host}` : '', oldFields: curFields, newFields: fields, actor: userName }); } catch (_) {}
+      const ncNo = j.fields['NC #'] || curFields['NC #'] || body.id;
+      let curLog = j.fields['Activity Log'];
+      // Stamp who was emailed on assignment (responder / reviewer).
+      try {
+        const sent = await notifyAssignment({ ncNo, appUrl: host ? `https://${host}` : '', oldFields: curFields, newFields: fields, actor: userName });
+        const line = emailLogLine(sent || {});
+        if (line) curLog = await appendLog(body.id, curLog, line, userName);
+      } catch (_) {}
       // Provincial-only: alert Troy when the response is newly marked Ready for Review.
       try {
         if ('Status' in fields && fields['Status'] === 'Ready for Review' && curFields['Status'] !== 'Ready for Review' && curFields['Source'] === 'Provincial Audit') {
-          await notifyResponseReady({ ncNo: j.fields['NC #'] || curFields['NC #'] || body.id, appUrl: host ? `https://${host}` : '', actor: userName });
+          const to = await notifyResponseReady({ ncNo, appUrl: host ? `https://${host}` : '', actor: userName });
+          if (to) curLog = await appendLog(body.id, curLog, `notified NC admin <${to}> — response ready, Province letter needed`, userName);
         }
       } catch (_) {}
-      res.status(200).json({ ok: true, record: { id: j.id, ...j.fields }, rejected: rejected.length ? rejected : undefined });
+      res.status(200).json({ ok: true, record: { id: j.id, ...j.fields, 'Activity Log': curLog }, rejected: rejected.length ? rejected : undefined });
       return;
     }
 
