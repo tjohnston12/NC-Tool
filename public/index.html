@@ -226,7 +226,7 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
       <label class="f">Repair photos (from the manager's response) <span style="text-transform:none;font-weight:400;color:var(--muted)">— click to enlarge; Print one to attach to the letter</span></label>
       <div id="d-letter-photos" style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px"></div>
       <div style="display:flex;gap:8px;margin-bottom:8px"><button class="btn sm ghost" id="d-letter-gen">Generate draft</button><button class="btn sm ghost" id="d-letter-copy">Copy</button></div>
-      <textarea id="d-letter-draft" rows="16" style="width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.82rem;line-height:1.45"></textarea>
+      <textarea id="d-letter-draft" rows="16" style="width:100%;font-family:'Times New Roman',Times,serif;font-size:14px;line-height:1.5"></textarea>
       <div style="display:flex;justify-content:space-between;margin-top:8px"><button class="btn sm ghost" id="d-letter-print">🖨 Print letter</button><button class="btn wine" id="d-letter-save">Save draft</button></div>
       <label class="f" style="margin-top:14px">Signed letter scan (mailed to Province)</label>
       <div class="thumbs" id="d-letter-scan"></div>
@@ -332,7 +332,7 @@ const TERMINAL = ['Closed','Cancelled'];
 let ALL = [], CUR = null, STATS = null, USER = null, IS_ADMIN = false, CAN_WORK = false;
 const CLOUD_NAME = 'djrqifos6', UPLOAD_PRESET = 'uzh72cqd';
 const CHECKLIST_ITEMS = ['Non-Conformance Corrected','Risk Analysis Performed','Reviewed to prevent re-occurrence','Reviewed by General Manager','Response Sheet Completed'];
-let RESP_FILES = [], RESP_CHECK = {}, CAN_RESPOND = false;
+let RESP_FILES = [], RESP_CHECK = {}, CAN_RESPOND = false, READY_PROMPTED = false;
 let MANAGERS = [];
 let PLAN = [];
 
@@ -602,7 +602,7 @@ function renderLetterPhotos(n){
 function printWindow(innerHtml, title, waitForImg){
   const w=window.open('','_blank','width=850,height=1100');
   if(!w){ toast('Allow pop-ups to print'); return; }
-  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(title||'Print')}</title><style>@page{margin:2cm} body{font-family:Georgia,serif;color:#111;margin:0;padding:24px} .lp{white-space:pre-wrap;font-size:12pt;line-height:1.55} img{max-width:100%;max-height:96vh;display:block;margin:0 auto}</style></head><body>${innerHtml}</body></html>`);
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(title||'Print')}</title><style>@page{margin:2cm} body{font-family:'Times New Roman',Times,serif;color:#111;margin:0;padding:24px} .lp{white-space:pre-wrap;font-size:12pt;line-height:1.55} img{max-width:100%;max-height:96vh;display:block;margin:0 auto}</style></head><body>${innerHtml}</body></html>`);
   w.document.close(); w.focus();
   if(waitForImg){ const im=w.document.querySelector('img'); const go=()=>{ w.focus(); w.print(); }; if(im){ if(im.complete) go(); else { im.onload=go; im.onerror=go; } } else go(); }
   else { setTimeout(()=>{ w.focus(); w.print(); }, 200); }
@@ -677,7 +677,7 @@ function openNC(id){
     n['Responsible Person'] ? `Responsible: <b>${esc(n['Responsible Person'])}</b>` : '',
     n['Reviewers'] ? `Reviewers: ${esc(String(n['Reviewers']).replace(/;+/g,', '))}` : ''
   ].filter(Boolean).join(' &nbsp;·&nbsp; ') || '<span class="muted">No responder assigned yet.</span>';
-  RESP_CHECK = {};
+  RESP_CHECK = {}; READY_PROMPTED = false;
   try{ const saved = JSON.parse(n['Response Checklist'] || '[]'); if(Array.isArray(saved)) saved.forEach(o => { if(o && o.item) RESP_CHECK[o.item] = !!o.done; }); }catch(_){}
   $('#d-checklist').innerHTML = CHECKLIST_ITEMS.map((it,i) => `
     <div class="checkitem${RESP_CHECK[it] ? ' done' : ''}">
@@ -686,6 +686,7 @@ function openNC(id){
     </div>`).join('');
   document.querySelectorAll('#d-checklist input').forEach((el,i) => el.onchange = () => {
     RESP_CHECK[CHECKLIST_ITEMS[i]] = el.checked; el.closest('.checkitem').classList.toggle('done', el.checked);
+    maybePromptReady();
   });
   RESP_FILES = String(n['Response Files'] || '').split(/\n+/).map(s => s.trim()).filter(Boolean);
   renderRespFiles();
@@ -804,6 +805,21 @@ function renderRespFiles(){
     const short = label.length > 10 ? label.slice(0, 9) + '…' : label;
     return `<a href="${linkUrl(u)}" target="_blank" rel="noopener" title="${esc(label)}">${isImg ? `<img src="${linkUrl(u)}">` : esc(short)}</a>`;
   }).join('') || '<span class="muted small">No response files yet.</span>';
+}
+// After a responder uploads a file or completes the checklist, offer to mark the
+// NC Ready for Review — but only when every checklist item is done and at least one
+// file is attached. Prompts once per open record.
+function maybePromptReady(){
+  if(!CUR || !CAN_RESPOND || READY_PROMPTED) return;
+  const st = CUR.Status || 'New';
+  if(TERMINAL.includes(st) || st === 'Ready for Review') return;
+  const allChecked = CHECKLIST_ITEMS.every(it => RESP_CHECK[it]);
+  if(allChecked && RESP_FILES.length){
+    READY_PROMPTED = true;
+    if(confirm('All response files are uploaded and every checklist item is complete.\n\nMark this NC as “Ready for Review” now?')){
+      saveResponse(true);
+    }
+  }
 }
 async function saveResponse(markReady){
   if(!CUR) return;
@@ -1053,12 +1069,18 @@ $('#d-plan-add').onclick = () => { PLAN.push({ step:'', due:'', done:false }); r
 $('#d-plan-save').onclick = savePlan;
 $('#d-plan-followup').onclick = sendFollowupEmail;
 $('#d-respond-file').addEventListener('change', async e => {
-  const files = [...e.target.files]; e.target.value = '';
+  if(!CUR) return; const files = [...e.target.files]; e.target.value = '';
   for(const file of files){
     const ph = document.createElement('div'); ph.className = 'thumb-pending'; ph.textContent = '…'; $('#d-respondfiles').appendChild(ph);
     try{ const url = await uploadRespondFile(file); RESP_FILES.push(url); renderRespFiles(); }
     catch(err){ ph.textContent = '!'; ph.title = err.message; }
   }
+  // Auto-save the uploaded files immediately (so a photo is never lost by forgetting Save).
+  try{
+    const r = await fetch(API, { method:'PATCH', headers: authHeaders(), body: JSON.stringify({ id: CUR.id, fields: { 'Response Files': RESP_FILES.join('\n') } }) });
+    const j = await r.json(); if(j.ok){ cache([j.record]); toast('Files saved'); } else toast('Not saved — ' + (j.error||''));
+  }catch(err){ toast('Not saved — ' + err.message); }
+  maybePromptReady();
 });
 $('#d-closure-file').addEventListener('change', async e => {
   if(!CUR) return; const files=[...e.target.files]; e.target.value='';
