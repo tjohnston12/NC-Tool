@@ -223,9 +223,11 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
 
     <div class="stage admin" id="d-letterbox" style="display:none"><h3>Province response letter — NC admin</h3>
       <div class="small muted" style="margin-bottom:8px">Draft the letter to NBHC, edit as needed, then print, sign and mail it. Upload the signed scan and mark the letter sent.</div>
+      <label class="f">Repair photos (from the manager's response) <span style="text-transform:none;font-weight:400;color:var(--muted)">— click to enlarge; Print one to attach to the letter</span></label>
+      <div id="d-letter-photos" style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:12px"></div>
       <div style="display:flex;gap:8px;margin-bottom:8px"><button class="btn sm ghost" id="d-letter-gen">Generate draft</button><button class="btn sm ghost" id="d-letter-copy">Copy</button></div>
       <textarea id="d-letter-draft" rows="16" style="width:100%;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.82rem;line-height:1.45"></textarea>
-      <div style="display:flex;justify-content:flex-end;margin-top:8px"><button class="btn wine" id="d-letter-save">Save draft</button></div>
+      <div style="display:flex;justify-content:space-between;margin-top:8px"><button class="btn sm ghost" id="d-letter-print">🖨 Print letter</button><button class="btn wine" id="d-letter-save">Save draft</button></div>
       <label class="f" style="margin-top:14px">Signed letter scan (mailed to Province)</label>
       <div class="thumbs" id="d-letter-scan"></div>
       <label class="photo-btn" id="d-letter-upload-label"><input type="file" id="d-letter-file" accept="image/*,application/pdf" multiple hidden> + Upload signed scan</label>
@@ -544,6 +546,43 @@ function renderClosureScan(){
     return `<a href="${u}" target="_blank" rel="noopener" title="${esc(label)}">${isImg?`<img src="${u}">`:esc(short)}</a>`;
   }).join('') || '<span class="muted small">No closure notice uploaded yet.</span>';
 }
+// Repair-photo viewer + printing for the response letter.
+function cldJpg(u, t){ return /res\.cloudinary\.com\/[^/]+\/image\/upload\//.test(u) ? u.replace('/image/upload/', `/image/upload/${t}/`) : u; }
+function repairPhotos(n){
+  const raw=[];
+  String(n['Response Files']||'').split(/\n+/).forEach(s=>raw.push(s.trim()));
+  String(n['Attachment URLs']||'').split(/\n+/).forEach(s=>raw.push(s.trim()));
+  if(Array.isArray(n['Files'])) n['Files'].forEach(f=>{ if(f&&f.url) raw.push(f.url); });
+  const uniq=[...new Set(raw.filter(Boolean))];
+  const isImg=u=>/\.(jpe?g|png|gif|webp|heic|heif)(\?|$)/i.test(u) || (/res\.cloudinary\.com\/[^/]+\/image\/upload\//.test(u) && !/\.pdf(\?|$)/i.test(u));
+  return uniq.filter(isImg);
+}
+function renderLetterPhotos(n){
+  const box=$('#d-letter-photos'); if(!box) return;
+  const pics=repairPhotos(n);
+  box.innerHTML = pics.length ? pics.map(u=>{
+    const thumb=cldJpg(u,'w_200,h_200,c_fill,f_jpg,q_auto'), full=cldJpg(u,'f_jpg,q_auto');
+    return `<div style="display:flex;flex-direction:column;align-items:center;gap:3px">
+      <a href="${full}" target="_blank" rel="noopener" title="Open full size"><img src="${thumb}" style="width:92px;height:92px;object-fit:cover;border:1px solid var(--line);border-radius:8px;display:block"></a>
+      <button type="button" class="lphoto-print" data-url="${full}" style="padding:2px 8px;font-size:11px;border:1px solid var(--line);background:#fff;border-radius:6px;cursor:pointer">🖨 Print</button>
+    </div>`;
+  }).join('') : '<span class="muted small">No repair photos uploaded by the manager yet.</span>';
+  box.querySelectorAll('.lphoto-print').forEach(b=> b.onclick=()=>printPhoto(b.dataset.url));
+}
+function printWindow(innerHtml, title, waitForImg){
+  const w=window.open('','_blank','width=850,height=1100');
+  if(!w){ toast('Allow pop-ups to print'); return; }
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(title||'Print')}</title><style>@page{margin:2cm} body{font-family:Georgia,serif;color:#111;margin:0;padding:24px} .lp{white-space:pre-wrap;font-size:12pt;line-height:1.55} img{max-width:100%;max-height:96vh;display:block;margin:0 auto}</style></head><body>${innerHtml}</body></html>`);
+  w.document.close(); w.focus();
+  if(waitForImg){ const im=w.document.querySelector('img'); const go=()=>{ w.focus(); w.print(); }; if(im){ if(im.complete) go(); else { im.onload=go; im.onerror=go; } } else go(); }
+  else { setTimeout(()=>{ w.focus(); w.print(); }, 200); }
+}
+function printLetter(){
+  const txt=$('#d-letter-draft').value||'';
+  if(!txt.trim()){ toast('Nothing to print — generate or paste the letter first'); return; }
+  printWindow(`<div class="lp">${esc(txt)}</div>`, ((CUR&&CUR['NC #'])||'NC')+' — response letter', false);
+}
+function printPhoto(url){ printWindow(`<img src="${esc(url)}">`, 'Repair photo', true); }
 const isoOK = s => !!s && s.length>=10 && s[4]==='-' && s[7]==='-';
 function generateLetter(n){
   const M=['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -639,6 +678,7 @@ function openNC(id){
       setV('#d-letter-date', n['Letter Date Sent'] || '');
       LETTER_SCAN = Array.isArray(n['Provincial Response Letter']) ? n['Provincial Response Letter'].slice() : [];
       renderLetterScan();
+      renderLetterPhotos(n);
     }
   }
   // ---- Closure notice (NBHC) — admin upload ----
@@ -946,6 +986,7 @@ $('#d-respond-save').onclick = () => saveResponse(false);
 $('#d-respond-ready').onclick = () => saveResponse(true);
 $('#d-letter-gen').onclick = () => { if(!CUR) return; $('#d-letter-draft').value = generateLetter(CUR); toast('Draft generated — review & edit'); };
 $('#d-letter-copy').onclick = () => { navigator.clipboard.writeText($('#d-letter-draft').value || '').then(()=>toast('Letter copied')); };
+$('#d-letter-print').onclick = printLetter;
 $('#d-letter-save').onclick = async () => {
   if(!CUR) return; const btn=$('#d-letter-save'); btn.disabled=true; btn.textContent='Saving…';
   try{
