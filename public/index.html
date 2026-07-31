@@ -645,7 +645,7 @@ function openNC(id){
   $('#d-facts').innerHTML = `
     ${_np ? `<dt>Audit report</dt><dd><a href="${linkUrl(_np.url)}" target="_blank" rel="noopener" style="font-weight:700">📄 Open Audit Report (PDF)</a></dd>` : ''}
     ${Array.isArray(n['Closure Notice']) && n['Closure Notice'].length ? `<dt>Closure notice</dt><dd>${n['Closure Notice'].map(f=>`<a href="${esc(f.url)}" target="_blank" rel="noopener" style="font-weight:700">📄 ${esc(f.filename||'Closure notice (PDF)')}</a>`).join(' · ')}</dd>` : ''}
-    <dt>Raised</dt><dd>${esc(n['Date Raised']||'—')} by ${esc(n['Raised By']||'—')}</dd>
+    <dt>Date Issued</dt><dd>${esc(n['Date Raised']||'—')} by ${esc(n['Raised By']||'—')}</dd>
     <dt>Source</dt><dd>${esc(n.Source||'—')}${n['Source Reference']?` · ${esc(n['Source Reference'])}`:''}</dd>
     <dt>Requirement</dt><dd>${esc(n.Requirement||'—')}</dd>
     <dt>Description</dt><dd>${esc(n.Description||'—')}</dd>
