@@ -409,8 +409,8 @@ function renderAssetInfo(){
   if (!a) { box.innerHTML = `<span style="color:var(--amber)">Not found in the asset register — check the ID.</span>`; return; }
   const loc = [a.route ? `Route ${esc(a.route)}` : '', (a.km != null && a.km !== '') ? `km ${esc(a.km)}` : ''].filter(Boolean).join(' ');
   const bits = [a.name ? esc(a.name) : '(unnamed)', a.category ? esc(a.category) : '', loc].filter(Boolean).join(' · ');
-  const link = a.recId ? `https://airtable.com/${ASSET_BASE}/${ASSET_TABLE_ID}/${a.recId}` : '';
-  box.innerHTML = `<span class="muted">${bits}</span>${link ? ` — <a href="${link}" target="_blank" rel="noopener" style="font-weight:600">Open asset ↗</a>` : ''}`;
+  const link = `https://assets.mrdc-htra.com/?id=${encodeURIComponent(id)}`;
+  box.innerHTML = `<span class="muted">${bits}</span> — <a href="${link}" target="_blank" rel="noopener" style="font-weight:600">Open asset ↗</a>`;
 }
 // Fill a Responsible-person <select> with the manager list, preserving any current value
 // (even a non-manager already on the record) so saving never silently drops it.

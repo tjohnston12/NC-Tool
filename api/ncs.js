@@ -157,6 +157,7 @@ async function at(url, method = 'GET', body) {
 function buildFilter(qs) {
   const parts = [];
   if (qs.nc) parts.push(`{NC #}='${esc(qs.nc)}'`);
+  if (qs.asset) parts.push(`{Asset ID}='${esc(qs.asset)}'`);   // Asset 360 — all NCs for one asset
   if (qs.status === 'open') parts.push(`AND({Status}!='Closed',{Status}!='Cancelled')`);
   else if (qs.status === 'overdue') parts.push(`AND({Status}!='Closed',{Status}!='Cancelled',{Due Date}<'${today()}')`);
   else if (qs.status) parts.push(`{Status}='${esc(qs.status)}'`);
@@ -410,7 +411,19 @@ async function sendFollowup({ ncNo, fields, appUrl, actor }) {
   return { ok: recipients.length > 0, recipients };
 }
 
+// CORS: let other MRDC apps (e.g. the Asset 360 page) read this API from the browser.
+const ORIGIN_OK = /^https:\/\/([a-z0-9-]+\.)*mrdc-htra\.com$|^https:\/\/[a-z0-9-]+\.vercel\.app$/i;
+function applyCors(req, res) {
+  const origin = req.headers && req.headers.origin;
+  if (origin && ORIGIN_OK.test(origin)) res.setHeader('Access-Control-Allow-Origin', origin);
+  res.setHeader('Vary', 'Origin');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-user-role, x-app-role, x-user-id, x-user-name');
+}
+
 module.exports = async (req, res) => {
+  applyCors(req, res);
+  if (req.method === 'OPTIONS') { res.status(200).end(); return; }
   if (!PAT || !BASE) { res.status(500).json({ ok: false, error: 'AIRTABLE_PAT and NC_BASE_ID must be set' }); return; }
 
   const userRole = String(req.headers['x-user-role'] || '');
