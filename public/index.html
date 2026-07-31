@@ -190,6 +190,10 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
     <dl id="d-facts"></dl>
 
     <div class="stage"><h3>Non-conformance details</h3>
+      <div class="fieldrow"><label class="f">Asset <span style="text-transform:none;font-weight:400;color:var(--muted)">— the asset this NC concerns (search by ID or name)</span></label>
+        <input id="d-asset" list="asset-list" type="text" placeholder="Search asset ID or name…" autocomplete="off">
+        <datalist id="asset-list"></datalist>
+        <div id="d-asset-info" class="small" style="margin-top:5px;min-height:16px"></div></div>
       <div class="fieldrow"><label class="f">Standard / clause</label><input id="d-clause" type="text" placeholder="e.g. OMM Schedule 1 – Part 5 · ISO 9001 §8.5.1 · contract §4.2"></div>
       <div class="fieldrow"><label class="f">Requirement <span style="text-transform:none;font-weight:400;color:var(--muted)">— what the standard requires (optional)</span></label><textarea id="d-req"></textarea></div>
       <div class="fieldrow"><label class="f">Description of the non-conformance <span style="text-transform:none;font-weight:400;color:var(--muted)">— what was found, where, evidence</span></label><textarea id="d-desc"></textarea></div>
@@ -348,6 +352,9 @@ const API = '/api/ncs';
 const TERMINAL = ['Closed','Cancelled'];
 let ALL = [], CUR = null, STATS = null, USER = null, IS_ADMIN = false, CAN_WORK = false;
 const CLOUD_NAME = 'djrqifos6', UPLOAD_PRESET = 'uzh72cqd';
+// Shared asset register (canonical Asset base) — one source for every app.
+const ASSET_API = 'https://assets.mrdc-htra.com/api/assets', ASSET_BASE = 'app0sXrUbOBr7a6vV', ASSET_TABLE_ID = 'tbll88se1AcceHDhW';
+let ASSETS = [], ASSET_BY_ID = {};
 const CHECKLIST_ITEMS = ['Non-Conformance Corrected','Risk Analysis Performed','Reviewed to prevent re-occurrence','Reviewed by General Manager','Response Sheet Completed'];
 let RESP_FILES = [], RESP_CHECK = {}, CAN_RESPOND = false, READY_PROMPTED = false;
 let MANAGERS = [];
@@ -378,6 +385,32 @@ function linkUrl(u){ u = String(u || '').trim(); try { return encodeURI(decodeUR
 
 async function loadManagers(){
   try { const r = await fetch(`${API}?managers=1`); const j = await r.json(); if (j.ok) MANAGERS = j.managers || []; } catch(_){}
+}
+
+// Asset register — pulled once from the shared canonical asset API (all=1 so assets
+// without GPS are still selectable). Feeds the datalist picker on each NC.
+async function loadAssets(){
+  try {
+    const r = await fetch(`${ASSET_API}?all=1`);
+    const j = await r.json();
+    if (Array.isArray(j)) { ASSETS = j; ASSET_BY_ID = {}; j.forEach(a => { ASSET_BY_ID[String(a.id)] = a; }); buildAssetList(); }
+  } catch(_){}
+}
+function buildAssetList(){
+  const dl = $('#asset-list'); if (!dl) return;
+  dl.innerHTML = ASSETS.map(a => `<option value="${esc(a.id)}" label="${esc([a.name, a.category].filter(Boolean).join(' · '))}">`).join('');
+}
+// Show the resolved asset (name · type · location) and a deep-link to its record.
+function renderAssetInfo(){
+  const box = $('#d-asset-info'); if (!box) return;
+  const id = $('#d-asset').value.trim();
+  if (!id) { box.innerHTML = ''; return; }
+  const a = ASSET_BY_ID[id];
+  if (!a) { box.innerHTML = `<span style="color:var(--amber)">Not found in the asset register — check the ID.</span>`; return; }
+  const loc = [a.route ? `Route ${esc(a.route)}` : '', (a.km != null && a.km !== '') ? `km ${esc(a.km)}` : ''].filter(Boolean).join(' ');
+  const bits = [a.name ? esc(a.name) : '(unnamed)', a.category ? esc(a.category) : '', loc].filter(Boolean).join(' · ');
+  const link = a.recId ? `https://airtable.com/${ASSET_BASE}/${ASSET_TABLE_ID}/${a.recId}` : '';
+  box.innerHTML = `<span class="muted">${bits}</span>${link ? ` — <a href="${link}" target="_blank" rel="noopener" style="font-weight:600">Open asset ↗</a>` : ''}`;
 }
 // Fill a Responsible-person <select> with the manager list, preserving any current value
 // (even a non-manager already on the record) so saving never silently drops it.
@@ -700,6 +733,7 @@ function openNC(id){
     <dt>Source</dt><dd>${esc(n.Source||'—')}${n['Source Reference']?` · ${esc(n['Source Reference'])}`:''}</dd>
     ${Array.isArray(n['Files']) && n['Files'].length ? `<dt>Files</dt><dd>${n['Files'].map(f=>`<a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(f.filename||'file')}</a>`).join(' · ')}</dd>` : ''}
     ${n['Attachment URLs'] ? `<dt>Links</dt><dd>${String(n['Attachment URLs']).split(/\n+/).filter(Boolean).map((u,i)=>`<a href="${linkUrl(u)}" target="_blank" rel="noopener">file ${i+1}</a>`).join(' · ')}</dd>` : ''}`;
+  setV('#d-asset', n['Asset ID']); renderAssetInfo();
   setV('#d-clause', n['Standard / Clause']); setV('#d-req', n['Requirement']); setV('#d-desc', n['Description']);
   setV('#d-status', n.Status || 'New'); setV('#d-class', n.Classification);
   setV('#d-due', n['Due Date']); setV('#d-division', n.Division); fillRespSelect($('#d-resp'), n['Responsible Person']);
@@ -776,6 +810,7 @@ async function saveNC(){
   if(!CUR) return;
   const fields = {
     'Status': $('#d-status').value, 'Classification': $('#d-class').value || null,
+    'Asset ID': $('#d-asset').value.trim() || null,
     'Standard / Clause': $('#d-clause').value, 'Requirement': $('#d-req').value, 'Description': $('#d-desc').value,
     'Due Date': $('#d-due').value || null, 'Division': $('#d-division').value || null,
     'Responsible Person': $('#d-resp').value,
@@ -1026,7 +1061,7 @@ function renderReport(){
 }
 function reportCSV(){
   const rows = reportFiltered().slice().sort((a,b)=>String(a['NC #']||'').localeCompare(String(b['NC #']||''), undefined, {numeric:true}));
-  const cols=['NC #','Source','Notice Type','Status','Priority','Standard / Clause','Division','Responsible Person','Date Raised','Due Date','Date Closed'];
+  const cols=['NC #','Source','Notice Type','Status','Priority','Asset ID','Standard / Clause','Division','Responsible Person','Date Raised','Due Date','Date Closed'];
   const q = v => { const s=String(v==null?'':v).replace(/"/g,'""'); return /[",\n]/.test(s)?`"${s}"`:s; };
   const lines=[cols.join(',')].concat(rows.map(n=>cols.map(c=>q(n[c])).join(',')));
   const blob=new Blob([lines.join('\n')],{type:'text/csv'});
@@ -1092,6 +1127,7 @@ $('#a-x').onclick = () => $('#av').classList.remove('on');
 // Reviewers chip picker — add via the dropdown, remove via a chip's ×.
 $('#d-reviewers-add').onchange = function(){ const v=this.value; if(v && !REVIEWERS_SEL.some(x=>x.toLowerCase()===v.toLowerCase())){ REVIEWERS_SEL.push(v); renderReviewerChips(); renderReviewerAdd(); } this.value=''; };
 $('#d-reviewers-chips').onclick = function(e){ const b=e.target.closest('button[data-i]'); if(!b) return; REVIEWERS_SEL.splice(+b.dataset.i,1); renderReviewerChips(); renderReviewerAdd(); };
+$('#d-asset').addEventListener('input', renderAssetInfo);
 $('#a-copy').onclick = async () => {
   try { await navigator.clipboard.writeText($('#d-log').textContent || ''); toast('Audit log copied'); }
   catch(_){ toast('Could not copy'); }
@@ -1183,6 +1219,7 @@ $('#d-comment').addEventListener('keydown', e => { if(e.key==='Enter') addCommen
   document.getElementById('signout').onclick = e => { e.preventDefault(); HTRA.logout(); };
 
   await loadManagers();
+  loadAssets();
   refreshStats();
   applyFilters();
   const p = new URLSearchParams(location.search);

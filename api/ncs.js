@@ -57,7 +57,7 @@ const MANAGER_FIELDS = new Set([
   'Corrective Action', 'Preventive Action', 'Date Action Completed',
   'Attachment URLs', 'Status',
   'Priority', 'Reviewers', 'Response Checklist', 'Response Files',
-  'Action Plan', 'Action Plan Started',
+  'Action Plan', 'Action Plan Started', 'Asset ID',
 ]);
 const ADMIN_FIELDS = new Set([
   'Verified By', 'Date Verified', 'Verification Notes', 'Date Closed',
@@ -83,7 +83,7 @@ const AUDIT_VALUE_FIELDS = new Set([
   'Status', 'Priority', 'Responsible Person', 'Division', 'Classification', 'Reviewers',
   'Due Date', 'Date Raised', 'Raised By', 'Date Action Completed', 'Date Verified',
   'Date Closed', 'Verified By', 'Letter Date Sent', 'Action Plan Started',
-  'Source', 'Source Reference', 'Standard / Clause',
+  'Source', 'Source Reference', 'Standard / Clause', 'Asset ID',
 ]);
 // Attachment fields — record uploads/removals by filename (Response Files is a
 // newline URL list and is handled alongside these).
