@@ -549,25 +549,55 @@ function renderClosureScan(){
 // Repair-photo viewer + printing for the response letter.
 function cldJpg(u, t){ return /res\.cloudinary\.com\/[^/]+\/image\/upload\//.test(u) ? u.replace('/image/upload/', `/image/upload/${t}/`) : u; }
 function repairPhotos(n){
-  const raw=[];
-  String(n['Response Files']||'').split(/\n+/).forEach(s=>raw.push(s.trim()));
-  String(n['Attachment URLs']||'').split(/\n+/).forEach(s=>raw.push(s.trim()));
-  if(Array.isArray(n['Files'])) n['Files'].forEach(f=>{ if(f&&f.url) raw.push(f.url); });
-  const uniq=[...new Set(raw.filter(Boolean))];
-  const isImg=u=>/\.(jpe?g|png|gif|webp|heic|heif)(\?|$)/i.test(u) || (/res\.cloudinary\.com\/[^/]+\/image\/upload\//.test(u) && !/\.pdf(\?|$)/i.test(u));
-  return uniq.filter(isImg);
+  const out=[];
+  // Airtable Files attachments — use Airtable's rendered JPG thumbnails (handles HEIC + PDF previews).
+  if(Array.isArray(n['Files'])) n['Files'].forEach(f=>{
+    if(!f || !f.thumbnails) return;
+    const img = /^image\//.test(f.type||'') || /\.(jpe?g|png|gif|webp|heic|heif)$/i.test(f.filename||'');
+    if(!img) return;
+    const t=f.thumbnails;
+    out.push({ label:f.filename||'photo', printable:true, thumb:(t.large||t.small||{}).url, view:(t.full||t.large||{}).url || f.url });
+  });
+  // URL lists — Response Files + Attachment URLs.
+  const urls=[];
+  String(n['Response Files']||'').split(/\n+/).forEach(s=>urls.push(s.trim()));
+  String(n['Attachment URLs']||'').split(/\n+/).forEach(s=>urls.push(s.trim()));
+  urls.filter(Boolean).forEach(u=>{
+    const base=u.split('?')[0]; let label='file'; try{ label=decodeURIComponent((base.match(/[^/]+$/)||['file'])[0]); }catch(_){}
+    if(/res\.cloudinary\.com\/[^/]+\/image\/upload\//.test(u) && !/\.pdf$/i.test(base)){
+      out.push({ label, printable:true, thumb:cldJpg(u,'w_200,h_200,c_fill,f_jpg,q_auto'), view:cldJpg(u,'f_jpg,q_auto') });
+    } else if(/\.(jpe?g|png|gif|webp)$/i.test(base)){
+      out.push({ label, printable:true, thumb:u, view:u });
+    } else {
+      out.push({ label, printable:false, heic:/\.(heic|heif)$/i.test(base), view:u });   // HEIC / SharePoint / PDF / doc → link only
+    }
+  });
+  const seen=new Set();
+  return out.filter(o=>{ if(!o.view || seen.has(o.view)) return false; seen.add(o.view); return true; });
 }
 function renderLetterPhotos(n){
   const box=$('#d-letter-photos'); if(!box) return;
   const pics=repairPhotos(n);
-  box.innerHTML = pics.length ? pics.map(u=>{
-    const thumb=cldJpg(u,'w_200,h_200,c_fill,f_jpg,q_auto'), full=cldJpg(u,'f_jpg,q_auto');
-    return `<div style="display:flex;flex-direction:column;align-items:center;gap:3px">
-      <a href="${full}" target="_blank" rel="noopener" title="Open full size"><img src="${thumb}" style="width:92px;height:92px;object-fit:cover;border:1px solid var(--line);border-radius:8px;display:block"></a>
-      <button type="button" class="lphoto-print" data-url="${full}" style="padding:2px 8px;font-size:11px;border:1px solid var(--line);background:#fff;border-radius:6px;cursor:pointer">🖨 Print</button>
-    </div>`;
-  }).join('') : '<span class="muted small">No repair photos uploaded by the manager yet.</span>';
-  box.querySelectorAll('.lphoto-print').forEach(b=> b.onclick=()=>printPhoto(b.dataset.url));
+  if(!pics.length){ box.innerHTML='<span class="muted small">No repair photos on this record yet.</span>'; return; }
+  let anyLink=false;
+  box.innerHTML = pics.map((p,i)=>{
+    if(p.printable){
+      return `<div style="display:flex;flex-direction:column;align-items:center;gap:3px">
+        <a href="${p.view}" target="_blank" rel="noopener" title="${esc(p.label)}"><img src="${p.thumb}" style="width:92px;height:92px;object-fit:cover;border:1px solid var(--line);border-radius:8px;display:block"></a>
+        <button type="button" class="lphoto-print" data-i="${i}" style="padding:2px 8px;font-size:11px;border:1px solid var(--line);background:#fff;border-radius:6px;cursor:pointer">🖨 Print</button>
+      </div>`;
+    }
+    anyLink=true;
+    const short=p.label.length>16?p.label.slice(0,15)+'…':p.label;
+    return `<a href="${linkUrl(p.view)}" target="_blank" rel="noopener" title="${esc(p.label)}" style="display:flex;flex-direction:column;justify-content:center;align-items:center;width:92px;height:92px;border:1px dashed var(--line);border-radius:8px;text-decoration:none;color:var(--muted);font-size:10.5px;text-align:center;padding:6px;gap:4px;line-height:1.25"><span style="font-size:20px">${p.heic?'🖼️':'📎'}</span><span style="word-break:break-word">${esc(short)} ↗</span></a>`;
+  }).join('');
+  box.querySelectorAll('.lphoto-print').forEach(b=> b.onclick=()=>printPhoto(pics[+b.dataset.i].view));
+  if(anyLink){
+    const note=document.createElement('div');
+    note.className='muted small'; note.style.cssText='flex-basis:100%;margin-top:2px';
+    note.textContent='Files marked ↗ (HEIC photos or SharePoint links) can’t preview here — click to open them.';
+    box.appendChild(note);
+  }
 }
 function printWindow(innerHtml, title, waitForImg){
   const w=window.open('','_blank','width=850,height=1100');
@@ -614,6 +644,7 @@ function openNC(id){
   const _np = noticePdf(n);
   $('#d-facts').innerHTML = `
     ${_np ? `<dt>Audit report</dt><dd><a href="${linkUrl(_np.url)}" target="_blank" rel="noopener" style="font-weight:700">📄 Open Audit Report (PDF)</a></dd>` : ''}
+    ${Array.isArray(n['Closure Notice']) && n['Closure Notice'].length ? `<dt>Closure notice</dt><dd>${n['Closure Notice'].map(f=>`<a href="${esc(f.url)}" target="_blank" rel="noopener" style="font-weight:700">📄 ${esc(f.filename||'Closure notice (PDF)')}</a>`).join(' · ')}</dd>` : ''}
     <dt>Raised</dt><dd>${esc(n['Date Raised']||'—')} by ${esc(n['Raised By']||'—')}</dd>
     <dt>Source</dt><dd>${esc(n.Source||'—')}${n['Source Reference']?` · ${esc(n['Source Reference'])}`:''}</dd>
     <dt>Requirement</dt><dd>${esc(n.Requirement||'—')}</dd>
