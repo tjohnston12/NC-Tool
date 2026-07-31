@@ -85,6 +85,13 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
 .fieldrow{margin-bottom:12px}
 .fieldrow input,.fieldrow select,.fieldrow textarea{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:13.5px;background:#fff;font-family:inherit}
 .fieldrow textarea{min-height:64px;resize:vertical}
+.chipbox{display:flex;flex-wrap:wrap;gap:6px;align-items:center;width:100%;min-height:38px;padding:5px 8px;border:1px solid var(--line);border-radius:8px;background:#fff}
+.chip{display:inline-flex;align-items:center;gap:5px;background:#eef2fb;color:#1E2B5E;border:1px solid #d7e0f2;border-radius:14px;padding:2px 4px 2px 10px;font-size:13px;line-height:1.6}
+.chip button{border:none;background:transparent;color:#5a6b93;cursor:pointer;font-size:15px;line-height:1;padding:0 3px;border-radius:10px}
+.chip button:hover{color:#A32D2D}
+.chip-add{border:none;background:transparent;font-size:13px;color:var(--muted);padding:4px 2px;min-width:140px;cursor:pointer;font-family:inherit}
+.chip-add:focus{outline:none}
+.chipbox.ro .chip button,.chipbox.ro .chip-add{display:none}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 16px}
 .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 16px}
 @media(max-width:680px){.grid2,.grid3{grid-template-columns:1fr}}
@@ -197,7 +204,8 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
     <div class="grid2">
       <div class="fieldrow"><label class="f">Priority</label>
         <select id="d-priority"><option value=""></option><option>Urgent</option><option>Important</option><option>Medium</option><option>Low</option></select></div>
-      <div class="fieldrow"><label class="f">Reviewers <span style="text-transform:none;font-weight:400;color:var(--muted)">— emailed to review; Ctrl / ⌘-click to pick more than one</span></label><select id="d-reviewers" multiple size="4"></select></div>
+      <div class="fieldrow"><label class="f">Reviewers <span style="text-transform:none;font-weight:400;color:var(--muted)">— emailed to review</span></label>
+        <div class="chipbox" id="d-reviewers-box"><span id="d-reviewers-chips"></span><select id="d-reviewers-add" class="chip-add"><option value="">+ Add reviewer…</option></select></div></div>
     </div>
 
     <div class="stage" id="d-planbox"><h3>Action plan <span style="text-transform:none;font-weight:400;color:var(--muted)">— steps toward correcting the NC; start within 5 working days of issue</span></h3>
@@ -375,17 +383,25 @@ function fillRespSelect(sel, current){
   sel.innerHTML = opts;
   sel.value = cur;
 }
-// Fill the Reviewers <select multiple> from the same manager list. Reviewers are stored
-// as a ';'-separated string; pre-select the saved names and keep any non-manager names
-// already on the record so saving never drops them.
-function fillReviewersSelect(sel, current){
-  const chosen = String(current || '').split(/;+/).map(s => s.trim()).filter(Boolean);
-  const all = MANAGERS.map(m => m.name);
-  chosen.forEach(c => { if (!all.includes(c)) all.push(c); });
-  sel.innerHTML = all.map(n => `<option value="${esc(n)}"${chosen.includes(n) ? ' selected' : ''}>${esc(n)}</option>`).join('');
+// Reviewers picker — clean chips + an "Add reviewer" dropdown, drawn from the same
+// manager list as Responsible person. Stored as a ';'-separated string; any name
+// already on the record that isn't a current manager is kept so saving never drops it.
+let REVIEWERS_SEL = [];
+function initReviewers(current){
+  REVIEWERS_SEL = String(current || '').split(/;+/).map(s => s.trim()).filter(Boolean);
+  renderReviewerChips(); renderReviewerAdd();
 }
-// Read the chosen reviewers back into the stored ';'-separated form.
-function getReviewers(sel){ return Array.from(sel.selectedOptions).map(o => o.value).join('; '); }
+function renderReviewerChips(){
+  $('#d-reviewers-chips').innerHTML = REVIEWERS_SEL.map((n,i) =>
+    `<span class="chip">${esc(n)}<button type="button" data-i="${i}" title="Remove ${esc(n)}">×</button></span>`).join('');
+}
+function renderReviewerAdd(){
+  const sel = $('#d-reviewers-add');
+  const chosen = new Set(REVIEWERS_SEL.map(x => x.toLowerCase()));
+  const opts = MANAGERS.map(m => m.name).filter(n => !chosen.has(n.toLowerCase()));
+  sel.innerHTML = '<option value="">+ Add reviewer…</option>' + opts.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('');
+}
+function getReviewers(){ return REVIEWERS_SEL.join('; '); }
 // The provincial audit report PDF for this NC — from native Files or the SharePoint links.
 function noticePdf(n){
   const nc = String(n['NC #'] || '');
@@ -682,7 +698,7 @@ function openNC(id){
     ${n['Attachment URLs'] ? `<dt>Links</dt><dd>${String(n['Attachment URLs']).split(/\n+/).filter(Boolean).map((u,i)=>`<a href="${linkUrl(u)}" target="_blank" rel="noopener">file ${i+1}</a>`).join(' · ')}</dd>` : ''}`;
   setV('#d-status', n.Status || 'New'); setV('#d-class', n.Classification);
   setV('#d-due', n['Due Date']); setV('#d-division', n.Division); fillRespSelect($('#d-resp'), n['Responsible Person']);
-  setV('#d-priority', n.Priority); fillReviewersSelect($('#d-reviewers'), n['Reviewers']);
+  setV('#d-priority', n.Priority); initReviewers(n['Reviewers']);
   setV('#d-contain', n['Containment Action']); setV('#d-root', n['Root Cause']);
   setV('#d-corrective', n['Corrective Action']); setV('#d-preventive', n['Preventive Action']);
   setV('#d-done', n['Date Action Completed']);
@@ -692,6 +708,7 @@ function openNC(id){
   // gate the controls
   const editable = CAN_WORK;
   document.querySelectorAll('#dv select, #dv textarea, #dv input:not(#d-comment)').forEach(el => el.disabled = !editable);
+  $('#d-reviewers-box').classList.toggle('ro', !editable);   // hide add/remove controls when read-only
   $('#d-verifybox').style.display = '';
   document.querySelectorAll('#d-verifybox input, #d-verifybox textarea').forEach(el => el.disabled = !IS_ADMIN);
   $('#d-save').style.display = editable ? '' : 'none';
@@ -756,7 +773,7 @@ async function saveNC(){
     'Status': $('#d-status').value, 'Classification': $('#d-class').value || null,
     'Due Date': $('#d-due').value || null, 'Division': $('#d-division').value || null,
     'Responsible Person': $('#d-resp').value,
-    'Priority': $('#d-priority').value || null, 'Reviewers': getReviewers($('#d-reviewers')),
+    'Priority': $('#d-priority').value || null, 'Reviewers': getReviewers(),
     'Containment Action': $('#d-contain').value, 'Root Cause': $('#d-root').value,
     'Corrective Action': $('#d-corrective').value, 'Preventive Action': $('#d-preventive').value,
     'Date Action Completed': $('#d-done').value || null,
@@ -1066,6 +1083,9 @@ $('#d-audit').onclick = () => {
   $('#av').classList.add('on');
 };
 $('#a-x').onclick = () => $('#av').classList.remove('on');
+// Reviewers chip picker — add via the dropdown, remove via a chip's ×.
+$('#d-reviewers-add').onchange = function(){ const v=this.value; if(v && !REVIEWERS_SEL.some(x=>x.toLowerCase()===v.toLowerCase())){ REVIEWERS_SEL.push(v); renderReviewerChips(); renderReviewerAdd(); } this.value=''; };
+$('#d-reviewers-chips').onclick = function(e){ const b=e.target.closest('button[data-i]'); if(!b) return; REVIEWERS_SEL.splice(+b.dataset.i,1); renderReviewerChips(); renderReviewerAdd(); };
 $('#a-copy').onclick = async () => {
   try { await navigator.clipboard.writeText($('#d-log').textContent || ''); toast('Audit log copied'); }
   catch(_){ toast('Could not copy'); }
