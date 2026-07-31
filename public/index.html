@@ -190,8 +190,11 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
     <dl id="d-facts"></dl>
 
     <div class="stage"><h3>Non-conformance details</h3>
-      <div class="fieldrow"><label class="f">Asset <span style="text-transform:none;font-weight:400;color:var(--muted)">— the asset this NC concerns (search by ID or name)</span></label>
-        <input id="d-asset" list="asset-list" type="text" placeholder="Search asset ID or name…" autocomplete="off">
+      <div class="fieldrow"><label class="f">Asset <span style="text-transform:none;font-weight:400;color:var(--muted)">— the asset this NC concerns; the type is pre-filtered from the OMM standard</span></label>
+        <div style="display:flex;gap:8px">
+          <select id="d-asset-type" style="max-width:180px;flex:0 0 auto"><option value="">All types</option></select>
+          <input id="d-asset" list="asset-list" type="text" placeholder="Search asset number, ID or name…" autocomplete="off" style="flex:1">
+        </div>
         <datalist id="asset-list"></datalist>
         <div id="d-asset-info" class="small" style="margin-top:5px;min-height:16px"></div></div>
       <div class="fieldrow"><label class="f">Standard / clause</label><input id="d-clause" type="text" placeholder="e.g. OMM Schedule 1 – Part 5 · ISO 9001 §8.5.1 · contract §4.2"></div>
@@ -393,14 +396,48 @@ async function loadAssets(){
   try {
     const r = await fetch(`${ASSET_API}?all=1`);
     const j = await r.json();
-    if (Array.isArray(j)) { ASSETS = j; ASSET_BY_ID = {}; j.forEach(a => { ASSET_BY_ID[String(a.id)] = a; }); buildAssetList(); }
+    if (Array.isArray(j)) { ASSETS = j; ASSET_BY_ID = {}; j.forEach(a => { ASSET_BY_ID[String(a.id)] = a; }); populateAssetTypes(); buildAssetList(); }
   } catch(_){}
+}
+// Fill the asset-type filter with the distinct categories present in the register.
+function populateAssetTypes(){
+  const sel = $('#d-asset-type'); if (!sel) return;
+  const cats = [...new Set(ASSETS.map(a => a.category).filter(Boolean))].sort();
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">All types</option>' + cats.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
+  sel.value = cur;
+}
+// Map an OMM standard (from the NC) to the asset type(s) its audit concerns.
+function assetTypesForStandard(std){
+  const m = String(std || '').match(/(\d{3})/); if (!m) return null;
+  const n = +m[1];
+  const exact = {
+    302:['Drainage Structure','Culvert'], 303:['Culvert','Drainage Structure'],
+    406:['Fencing','Gate'], 704:['Sign'], 705:['Sign'],
+    706:['Guiderail'], 708:['Guiderail'], 707:['Barrier Wall'],
+  };
+  if (exact[n]) return exact[n];
+  const series = Math.floor(n / 100);
+  if (series === 3) return ['Culvert','Drainage Structure','Structure'];
+  if (series === 7) return ['Guiderail','Sign','Barrier Wall','Lighting'];
+  return null;
+}
+// Pre-set the asset-type filter from the NC's OMM standard (only if that type exists).
+function setAssetTypeFromStandard(std){
+  const sel = $('#d-asset-type'); if (!sel) return;
+  const want = assetTypesForStandard(std);
+  let pick = '';
+  if (want) { const cats = new Set(ASSETS.map(a => a.category)); pick = want.find(t => cats.has(t)) || ''; }
+  sel.value = pick;
+  buildAssetList();
 }
 function buildAssetList(){
   const dl = $('#asset-list'); if (!dl) return;
-  dl.innerHTML = ASSETS.map(a => `<option value="${esc(a.id)}" label="${esc([a.name, a.category].filter(Boolean).join(' · '))}">`).join('');
+  const t = $('#d-asset-type') ? $('#d-asset-type').value : '';
+  const list = t ? ASSETS.filter(a => a.category === t) : ASSETS;
+  dl.innerHTML = list.map(a => `<option value="${esc(a.id)}" label="${esc([a.asset_ref, a.name, a.category].filter(Boolean).join(' · '))}">`).join('');
 }
-// Show the resolved asset (name · type · location) and a deep-link to its record.
+// Show the resolved asset (number · name · type · location) and a deep-link to its record.
 function renderAssetInfo(){
   const box = $('#d-asset-info'); if (!box) return;
   const id = $('#d-asset').value.trim();
@@ -408,7 +445,7 @@ function renderAssetInfo(){
   const a = ASSET_BY_ID[id];
   if (!a) { box.innerHTML = `<span style="color:var(--amber)">Not found in the asset register — check the ID.</span>`; return; }
   const loc = [a.route ? `Route ${esc(a.route)}` : '', (a.km != null && a.km !== '') ? `km ${esc(a.km)}` : ''].filter(Boolean).join(' ');
-  const bits = [a.name ? esc(a.name) : '(unnamed)', a.category ? esc(a.category) : '', loc].filter(Boolean).join(' · ');
+  const bits = [a.asset_ref ? `No. ${esc(a.asset_ref)}` : '', a.name ? esc(a.name) : '(unnamed)', a.category ? esc(a.category) : '', loc].filter(Boolean).join(' · ');
   const link = `https://assets.mrdc-htra.com/?id=${encodeURIComponent(id)}`;
   box.innerHTML = `<span class="muted">${bits}</span> — <a href="${link}" target="_blank" rel="noopener" style="font-weight:600">Open asset ↗</a>`;
 }
@@ -733,7 +770,7 @@ function openNC(id){
     <dt>Source</dt><dd>${esc(n.Source||'—')}${n['Source Reference']?` · ${esc(n['Source Reference'])}`:''}</dd>
     ${Array.isArray(n['Files']) && n['Files'].length ? `<dt>Files</dt><dd>${n['Files'].map(f=>`<a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(f.filename||'file')}</a>`).join(' · ')}</dd>` : ''}
     ${n['Attachment URLs'] ? `<dt>Links</dt><dd>${String(n['Attachment URLs']).split(/\n+/).filter(Boolean).map((u,i)=>`<a href="${linkUrl(u)}" target="_blank" rel="noopener">file ${i+1}</a>`).join(' · ')}</dd>` : ''}`;
-  setV('#d-asset', n['Asset ID']); renderAssetInfo();
+  setV('#d-asset', n['Asset ID']); setAssetTypeFromStandard(n['Standard / Clause']); renderAssetInfo();
   setV('#d-clause', n['Standard / Clause']); setV('#d-req', n['Requirement']); setV('#d-desc', n['Description']);
   setV('#d-status', n.Status || 'New'); setV('#d-class', n.Classification);
   setV('#d-due', n['Due Date']); setV('#d-division', n.Division); fillRespSelect($('#d-resp'), n['Responsible Person']);
@@ -1128,6 +1165,7 @@ $('#a-x').onclick = () => $('#av').classList.remove('on');
 $('#d-reviewers-add').onchange = function(){ const v=this.value; if(v && !REVIEWERS_SEL.some(x=>x.toLowerCase()===v.toLowerCase())){ REVIEWERS_SEL.push(v); renderReviewerChips(); renderReviewerAdd(); } this.value=''; };
 $('#d-reviewers-chips').onclick = function(e){ const b=e.target.closest('button[data-i]'); if(!b) return; REVIEWERS_SEL.splice(+b.dataset.i,1); renderReviewerChips(); renderReviewerAdd(); };
 $('#d-asset').addEventListener('input', renderAssetInfo);
+$('#d-asset-type').addEventListener('change', buildAssetList);
 $('#a-copy').onclick = async () => {
   try { await navigator.clipboard.writeText($('#d-log').textContent || ''); toast('Audit log copied'); }
   catch(_){ toast('Could not copy'); }
