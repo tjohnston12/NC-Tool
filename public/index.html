@@ -151,6 +151,7 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
         <option>Closed</option><option>Cancelled</option>
       </select>
       <select id="f-class" style="display:none"><option value="">Any class</option><option>Major</option><option>Minor</option><option>OFI</option></select>
+      <input type="hidden" id="f-notice">
       <select id="f-source"><option value="">Any source</option><option>Quality Audit</option><option>Provincial Audit</option><option>ISO Audit</option><option>Internal Audit</option><option>Client / Contract</option><option>Other</option></select>
       <select id="f-division"><option value="">All divisions</option><option>Western</option><option>Eastern</option><option>Head Office</option></select>
       <select id="f-standard"><option value="">Any OMM standard</option></select>
@@ -548,7 +549,8 @@ function renderKpis(){
     <div class="kpi done" data-k="closed"><b>${s?s.closed.toLocaleString():'…'}</b><span>Closed</span></div>`;
   document.querySelectorAll('.kpi').forEach(k => k.onclick = () => {
     const m = k.dataset.k;
-    $('#f-status').value = m==='open' ? 'open' : m==='overdue' ? 'overdue' : m==='closed' ? 'Closed' : 'open';
+    clearFilters();
+    $('#f-status').value = m==='overdue' ? 'overdue' : m==='closed' ? 'Closed' : 'open';
     $('#f-class').value = m==='major' ? 'Major' : '';
     applyFilters();
   });
@@ -557,19 +559,20 @@ function renderKpis(){
 function renderSrc(){
   const s = STATS;
   const groups = [
-    { cls:'prov', label:'Provincial NCN — Open', src:'Provincial Audit', prefix:'OMNCN', g: s && s.provNCN },
-    { cls:'def',  label:'Provincial DEF — Open', src:'Provincial Audit', prefix:'OMDEF', g: s && s.provDEF },
-    { cls:'int',  label:'Internal NCs — Open',   src:'Internal Audit',   prefix:'',      g: s && s.internal },
+    { cls:'prov', label:'Provincial NCN — Open', src:'Provincial Audit', notice:'ncn', g: s && s.provNCN },
+    { cls:'def',  label:'Provincial DEF — Open', src:'Provincial Audit', notice:'def', g: s && s.provDEF },
+    { cls:'int',  label:'Internal NCs — Open',   src:'Internal Audit',   notice:'',    g: s && s.internal },
   ];
   $('#srcsplit').innerHTML = groups.map(o => `
-    <div class="srctile ${o.cls}" data-src="${o.src}" data-prefix="${o.prefix}">
+    <div class="srctile ${o.cls}" data-src="${o.src}" data-notice="${o.notice}">
       <span>${o.label}</span>
       <b>${o.g ? o.g.open.toLocaleString() : '…'}</b>
       <em>of ${o.g ? o.g.total.toLocaleString() : '…'} total</em>
     </div>`).join('');
   document.querySelectorAll('.srctile').forEach(t => t.onclick = () => {
-    $('#f-source').value = t.dataset.src; $('#f-status').value = 'open'; $('#f-class').value = '';
-    $('#f-q').value = t.dataset.prefix || '';
+    clearFilters();
+    $('#f-source').value = t.dataset.src;
+    $('#f-notice').value = t.dataset.notice || '';
     applyFilters();
   });
 }
@@ -593,7 +596,11 @@ function renderStandards(){
       <span class="stdn">${o.count.toLocaleString()}</span>
     </div>`).join('');
   document.querySelectorAll('#stdbars .stdrow').forEach(r => r.onclick = () => {
-    $('#f-standard').value = r.dataset.code; $('#f-status').value=''; applyFilters();
+    clearFilters();
+    $('#f-standard').value = r.dataset.code;
+    $('#f-status').value = 'open';
+    $('#f-notice').value = 'ncn';   // "Open NCs by OMM standard" = NCNs, exclude Defect Notices
+    applyFilters();
   });
   $('#stdcard').style.display = arr.length ? '' : 'none';
 }
@@ -617,11 +624,24 @@ function renderRows(rows){
 
 function cache(rows){ rows.forEach(r => { const i = ALL.findIndex(x=>x.id===r.id); if(i>=0) ALL[i]=r; else ALL.push(r); }); return rows; }
 
+// Reset every filter control to its default (status=open, everything else cleared).
+// Buttons/boxes above the results call this FIRST so a click opens a clean view,
+// never one combined with whatever filters happened to be set.
+function clearFilters(){
+  $('#f-status').value = 'open';
+  $('#f-class').value = '';
+  $('#f-source').value = '';
+  $('#f-division').value = '';
+  $('#f-standard').value = '';
+  $('#f-q').value = '';
+  $('#f-notice').value = '';
+}
+
 async function applyFilters(){
   const f = {};
   const s=$('#f-status').value, c=$('#f-class').value, so=$('#f-source').value, d=$('#f-division').value, q=$('#f-q').value.trim();
-  const std=$('#f-standard').value;
-  if(s) f.status=s; if(c) f.classification=c; if(so) f.source=so; if(d) f.division=d; if(std) f.standard=std; if(q) f.q=q;
+  const std=$('#f-standard').value, notice=$('#f-notice').value;
+  if(s) f.status=s; if(c) f.classification=c; if(so) f.source=so; if(d) f.division=d; if(std) f.standard=std; if(q) f.q=q; if(notice) f.notice=notice;
   f.limit = 500;
   try{
     const rows = cache(await load(f));
@@ -1138,7 +1158,7 @@ $('#r-run').onclick = renderReport;
 $('#r-csv').onclick = reportCSV;
 $('#r-pdf').onclick = reportPDF;
 $('#f-go').onclick = applyFilters;
-$('#f-clear').onclick = () => { $('#f-status').value='open'; $('#f-class').value=''; $('#f-source').value=''; $('#f-division').value=''; $('#f-standard').value=''; $('#f-q').value=''; applyFilters(); };
+$('#f-clear').onclick = () => { clearFilters(); applyFilters(); };
 $('#f-q').addEventListener('keydown', e => { if(e.key==='Enter') applyFilters(); });
 $('#g-go').onclick = () => { $('#f-q').value = $('#g-q').value; $('#f-status').value=''; applyFilters(); };
 $('#g-q').addEventListener('keydown', e => { if(e.key==='Enter') $('#g-go').click(); });

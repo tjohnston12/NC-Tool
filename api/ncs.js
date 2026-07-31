@@ -158,6 +158,9 @@ function buildFilter(qs) {
   const parts = [];
   if (qs.nc) parts.push(`{NC #}='${esc(qs.nc)}'`);
   if (qs.asset) parts.push(`{Asset ID}='${esc(qs.asset)}'`);   // Asset 360 — all NCs for one asset
+  // Notice-type scope: 'ncn' = everything except Defect Notices; 'def' = only Defect Notices.
+  if (qs.notice === 'ncn') parts.push(`{Notice Type}!='Defect Notice'`);
+  else if (qs.notice === 'def') parts.push(`{Notice Type}='Defect Notice'`);
   if (qs.status === 'open') parts.push(`AND({Status}!='Closed',{Status}!='Cancelled')`);
   else if (qs.status === 'overdue') parts.push(`AND({Status}!='Closed',{Status}!='Cancelled',{Due Date}<'${today()}')`);
   else if (qs.status) parts.push(`{Status}='${esc(qs.status)}'`);
@@ -234,9 +237,9 @@ async function stats() {
         acc.open++;
         if (f['Due Date'] && f['Due Date'] < t) acc.overdue++;
         if (f['Classification'] === 'Major') acc.majorOpen++;
-        // OMM standard breakdown — OPEN NCs only (multi-standard split on top-level commas)
+        // OMM standard breakdown — OPEN NCNs only (exclude Defect Notices; multi-standard split on top-level commas)
         const sc = f['Standard / Clause'];
-        if (sc) for (const part of splitStandards(sc)) {
+        if (sc && f['Notice Type'] !== 'Defect Notice') for (const part of splitStandards(sc)) {
           const m = part.match(/^OMM\s*(\d{3})\b/);
           const code = m ? `OMM ${m[1]}` : '__OTHER__';
           const b = acc.byStandard[code] || (acc.byStandard[code] = { code, label: m ? part : 'Other / non-OMM', count: 0 });
