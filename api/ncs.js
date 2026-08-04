@@ -37,6 +37,9 @@ const PAT = process.env.AIRTABLE_PAT;
 const BASE = process.env.NC_BASE_ID;
 const TABLE = process.env.NC_TABLE || 'Non Conformances';
 const AT = `https://api.airtable.com/v0/${BASE}/${encodeURIComponent(TABLE)}`;
+// Audit Reports table — clean audits (NBHC/provincial, ISO, client, internal) that did NOT produce an NC.
+const AUDIT_TABLE = process.env.NC_AUDIT_TABLE || 'Audit Reports';
+const AT_AUDIT = `https://api.airtable.com/v0/${BASE}/${encodeURIComponent(AUDIT_TABLE)}`;
 const HDR = { Authorization: `Bearer ${PAT}`, 'Content-Type': 'application/json' };
 
 // Email notifications (Resend) + employee email lookup (shared Employees base).
@@ -204,6 +207,24 @@ async function list(qs) {
 
 function splitStandards(s) {
   return String(s).split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(p => p.trim().replace(/^"|"$/g, '')).filter(Boolean);
+}
+
+// Full list of clean Audit Reports (no NC resulted). Small table (~700); the front end
+// filters client-side by source/division/result/date, so this just returns everything.
+async function auditsList() {
+  const rows = [];
+  let offset;
+  do {
+    const p = new URLSearchParams();
+    p.set('pageSize', '100');
+    p.append('sort[0][field]', 'Date');
+    p.append('sort[0][direction]', 'desc');
+    if (offset) p.set('offset', offset);
+    const json = await at(`${AT_AUDIT}?${p.toString()}`);
+    for (const r of json.records) rows.push({ id: r.id, ...r.fields });
+    offset = json.offset;
+  } while (offset);
+  return rows;
 }
 
 async function stats() {
@@ -446,6 +467,12 @@ module.exports = async (req, res) => {
       if (qs.stats === '1') {
         res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=600');
         res.status(200).json({ ok: true, stats: await stats() });
+        return;
+      }
+      if (qs.audits === '1') {
+        res.setHeader('Cache-Control', 'no-store');
+        const records = await auditsList();
+        res.status(200).json({ ok: true, count: records.length, records });
         return;
       }
       const { rows, truncated } = await list(qs);

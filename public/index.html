@@ -136,6 +136,7 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
   <div class="tabs" id="tabs">
     <button class="tab on" data-tab="register">Register</button>
     <button class="tab" data-tab="reports">Reports</button>
+    <button class="tab" data-tab="audits">Audit Reports</button>
   </div>
   <div id="view-register">
   <div class="srcsplit" id="srcsplit"></div>
@@ -181,6 +182,25 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
     </div>
     <div class="kpis" id="r-kpis"></div>
     <div class="repgrid" id="r-breakdowns"></div>
+  </div>
+  <div id="view-audits" style="display:none">
+    <div class="card">
+      <div class="small muted" style="margin-bottom:8px">Clean audits (NBHC / provincial, ISO, client and internal) that did <b>not</b> result in a non-conformance.</div>
+      <div class="filters">
+        <select id="a-source"><option value="">Any source</option><option value="__internal">Internal audits</option><option value="__external">External audits</option><option disabled>─────────</option><option>Provincial Audit</option><option>ISO Audit</option><option>Quality Audit</option><option>Client / Contract</option><option>Internal Audit</option><option>Other</option></select>
+        <select id="a-division"><option value="">All divisions</option><option>Western</option><option>Eastern</option><option>Head Office</option><option>Safety / Projects</option><option>Fleet</option></select>
+        <select id="a-result"><option value="">Any result</option><option>Compliant</option><option>Compliant with observations</option></select>
+        <label class="muted small" style="align-self:center">From</label><input type="date" id="a-from" style="flex:0 0 140px">
+        <label class="muted small" style="align-self:center">To</label><input type="date" id="a-to" style="flex:0 0 140px">
+        <input type="text" id="a-q" placeholder="keywords — report #, standard, notes…">
+        <button class="btn sm ghost" id="a-clear">Clear</button>
+        <span class="muted small" id="a-count"></span>
+      </div>
+      <div class="tw"><table>
+        <thead><tr><th>Report #</th><th>Date</th><th>Source</th><th>Division</th><th>Standard</th><th>Result</th><th>Related NC</th></tr></thead>
+        <tbody id="a-rows"></tbody>
+      </table></div>
+    </div>
   </div>
 </main>
 
@@ -990,11 +1010,67 @@ async function refreshStats(){
 
 // ---------- Reports ----------
 let REPORT_ROWS = null;
+let AUDIT_ROWS = null;
 function showTab(name){
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('on', t.dataset.tab===name));
   $('#view-register').style.display = name==='register' ? '' : 'none';
   $('#view-reports').style.display  = name==='reports'  ? '' : 'none';
+  $('#view-audits').style.display   = name==='audits'   ? '' : 'none';
   if(name==='reports' && REPORT_ROWS===null) loadReport();
+  if(name==='audits'  && AUDIT_ROWS===null)  loadAudits();
+}
+// ---------- Audit Reports (clean audits, no NC) ----------
+async function loadAudits(){
+  $('#a-count').textContent = 'Loading…';
+  try{ const r=await fetch(`${API}?audits=1`); const j=await r.json(); AUDIT_ROWS = j.ok ? (j.records||[]) : []; }
+  catch(e){ AUDIT_ROWS=[]; toast('Could not load audit reports — '+e.message); }
+  renderAudits();
+}
+function auditFiltered(){
+  const src=$('#a-source').value, div=$('#a-division').value, res=$('#a-result').value;
+  const from=$('#a-from').value, to=$('#a-to').value, q=$('#a-q').value.trim().toLowerCase();
+  const terms=q?q.split(/\s+/).filter(Boolean):[];
+  return (AUDIT_ROWS||[]).filter(a=>{
+    const s=a.Source||'';
+    if(src==='__internal'){ if(s!=='Internal Audit') return false; }
+    else if(src==='__external'){ if(!s || s==='Internal Audit') return false; }
+    else if(src && s!==src) return false;
+    if(div && (a.Division||'')!==div) return false;
+    if(res && (a.Result||'')!==res) return false;
+    const d=a.Date||'';
+    if(from && d<from) return false;
+    if(to && d>to) return false;
+    if(terms.length){
+      const hay=[a['Report #'],a.Standard,a.Notes,a['Related Notices'],a.Division,a.Source].filter(Boolean).join(' ').toLowerCase();
+      if(!terms.every(t=>hay.includes(t))) return false;
+    }
+    return true;
+  });
+}
+function auditResultPill(v){
+  if(!v) return '<span class="muted">—</span>';
+  const green = v==='Compliant';
+  const bg=green?'#E7F6EF':'#FDF0DD', fg=green?'#0F7A4E':'#8A5B00';
+  return `<span style="display:inline-block;border-radius:99px;padding:2px 9px;font-size:11.5px;font-weight:600;background:${bg};color:${fg};white-space:nowrap">${esc(v)}</span>`;
+}
+function renderAudits(){
+  const rows=auditFiltered();
+  $('#a-count').textContent = `${rows.length} report${rows.length===1?'':'s'}`;
+  $('#a-rows').innerHTML = rows.length ? rows.map(a=>{
+    const file = Array.isArray(a.Files) && a.Files[0] && a.Files[0].url ? a.Files[0].url : '';
+    const rep = esc(a['Report #']||'—');
+    const repCell = file ? `<a href="${linkUrl(file)}" target="_blank" rel="noopener" style="font-weight:700">📄 ${rep}</a>` : `<b>${rep}</b>`;
+    const notes = a.Notes ? `<div class="small muted">${esc(String(a.Notes).slice(0,90))}${String(a.Notes).length>90?'…':''}</div>` : '';
+    return `<tr>
+      <td>${repCell}${notes}</td>
+      <td class="small">${esc(a.Date||'—')}</td>
+      <td class="small">${esc(a.Source||'—')}</td>
+      <td class="small">${esc(a.Division||'—')}</td>
+      <td class="small">${esc(a.Standard||'—')}</td>
+      <td>${auditResultPill(a.Result)}</td>
+      <td class="small">${esc(a['Related Notices']||'—')}</td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="7" class="empty">No audit reports match.</td></tr>`;
 }
 async function loadReport(){
   $('#r-count').textContent = 'Loading…';
@@ -1172,6 +1248,9 @@ function reportPDF(){
 document.querySelectorAll('.tab').forEach(t => t.onclick = () => showTab(t.dataset.tab));
 $('#r-run').onclick = renderReport;
 ['#r-from','#r-to','#r-source'].forEach(id => { const el=$(id); if(el) el.addEventListener('change', renderReport); });
+['#a-source','#a-division','#a-result','#a-from','#a-to'].forEach(id => { const el=$(id); if(el) el.addEventListener('change', renderAudits); });
+$('#a-q').addEventListener('input', renderAudits);
+$('#a-clear').onclick = () => { ['#a-source','#a-division','#a-result','#a-from','#a-to','#a-q'].forEach(id => { const el=$(id); if(el) el.value=''; }); renderAudits(); };
 $('#r-csv').onclick = reportCSV;
 $('#r-pdf').onclick = reportPDF;
 $('#f-go').onclick = applyFilters;
