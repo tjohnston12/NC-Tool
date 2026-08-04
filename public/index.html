@@ -773,7 +773,7 @@ function generateLetter(n){
   const hasFiles = (typeof RESP_FILES!=='undefined' && RESP_FILES.length>0);
   const proof = hasFiles ? 'Please find attached a photo of the repairs as proof.' : 'Please find attached our response and supporting documentation as proof.';
   const L=[longD(today()),''];
-  ['Mr. Mark Scott','Project Manager, NBHC/Provincial Advisor','NBHC','PO Box 6000','Fredericton, NB  E3B 5H1'].forEach(x=>L.push(x));
+  ['Mr. Jules Michaud','Project Manager, NBHC/Provincial Advisor','NBHC','PO Box 6000','Fredericton, NB  E3B 5H1'].forEach(x=>L.push(x));
   L.push('','Re: Non-Conformance Notice '+num,'','Dear Sir :','',ack,'',ca,'',proof,'','MRDC respectfully requests that '+num+' be closed.','','MRDC OPERATIONS CORPORATION','','','','','Jason Greeley, P. Eng.','Deputy General Manager','','Encl.','TJ');
   return L.join('\n');
 }
