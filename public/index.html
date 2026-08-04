@@ -24,12 +24,12 @@ button{font:inherit}
 main{max-width:1180px;margin:0 auto;padding:16px 20px 60px}
 .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:4px 0 14px}
 @media(max-width:720px){.kpis{grid-template-columns:1fr 1fr}}
-#kpis{grid-template-columns:repeat(3,1fr)}
+#kpis{grid-template-columns:repeat(4,1fr)}
 @media(max-width:720px){#kpis{grid-template-columns:1fr 1fr}}
 .kpi{background:#fff;border:1px solid var(--line);border-radius:10px;padding:12px 16px;cursor:pointer}
 .kpi b{font-size:22px;display:block}
 .kpi span{font-size:10.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:700}
-.kpi.over b{color:var(--bad)} .kpi.major b{color:var(--wine)} .kpi.done b{color:var(--good)}
+.kpi.over b{color:var(--bad)} .kpi.major b{color:var(--wine)} .kpi.done b{color:var(--good)} .kpi.sent b{color:#1B4F8A}
 .srcsplit{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:4px 0 12px}
 @media(max-width:720px){.srcsplit{grid-template-columns:1fr}}
 .srctile{background:#fff;border:1px solid var(--line);border-left:4px solid var(--line);border-radius:10px;padding:12px 16px;cursor:pointer}
@@ -266,7 +266,7 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
       <div class="fieldrow"><label class="f">Verification notes (evidence of effectiveness)</label><textarea id="d-vernotes"></textarea></div>
       <label class="f" style="margin-top:6px">Closure notice from NBHC (PDF)</label>
       <div class="thumbs" id="d-closure-scan"></div>
-      <label class="photo-btn" id="d-closure-upload-label"><input type="file" id="d-closure-file" accept="application/pdf,image/*" multiple hidden> + Upload closure notice</label></div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><label class="photo-btn" id="d-closure-upload-label"><input type="file" id="d-closure-file" accept="application/pdf,image/*" multiple hidden> + Upload closure notice</label><button class="btn sm wine" id="d-closure-save">Save closure notice</button></div></div>
 
     <div class="stage respond" id="d-respondbox"><h3>Respond — corrective response &amp; evidence</h3>
       <div class="respond-meta" id="d-respond-meta"></div>
@@ -546,11 +546,12 @@ function renderKpis(){
   $('#kpis').innerHTML = `
     <div class="kpi over" data-k="overdue"><b>${s?s.overdue.toLocaleString():'…'}</b><span>Overdue</span></div>
     <div class="kpi major" data-k="major"><b>${s?s.majorOpen.toLocaleString():'…'}</b><span>Major open</span></div>
+    <div class="kpi sent" data-k="lettersent"><b>${s?((s.byStatus&&s.byStatus['Letter Sent'])||0).toLocaleString():'…'}</b><span>Letter Sent</span></div>
     <div class="kpi done" data-k="closed"><b>${s?s.closed.toLocaleString():'…'}</b><span>Closed</span></div>`;
   document.querySelectorAll('.kpi').forEach(k => k.onclick = () => {
     const m = k.dataset.k;
     clearFilters();
-    $('#f-status').value = m==='overdue' ? 'overdue' : m==='closed' ? 'Closed' : 'open';
+    $('#f-status').value = m==='overdue' ? 'overdue' : m==='closed' ? 'Closed' : m==='lettersent' ? 'Letter Sent' : 'open';
     $('#f-class').value = m==='major' ? 'Major' : '';
     applyFilters();
   });
@@ -860,6 +861,7 @@ function openNC(id){
   CLOSURE_SCAN = Array.isArray(n['Closure Notice']) ? n['Closure Notice'].slice() : [];
   renderClosureScan();
   $('#d-closure-upload-label').style.display = IS_ADMIN ? '' : 'none';
+  $('#d-closure-save').style.display = IS_ADMIN ? '' : 'none';
   $('#dv').classList.add('on');
 }
 
@@ -1244,17 +1246,38 @@ $('#d-respond-file').addEventListener('change', async e => {
   }catch(err){ toast('Not saved — ' + err.message); }
   maybePromptReady();
 });
+// Save the closure notice and VERIFY the attachment actually landed. Airtable
+// silently drops an attachment URL it can't fetch (e.g. Cloudinary blocking PDF
+// delivery), so a bare 200 isn't proof — we compare the returned count to what we sent.
+async function saveClosure(){
+  if(!CUR) return false;
+  const btn=$('#d-closure-save'); const orig=btn?btn.textContent:''; if(btn){ btn.disabled=true; btn.textContent='Saving…'; }
+  const want = CLOSURE_SCAN.length;
+  try{
+    const r = await fetch(API, { method:'PATCH', headers: authHeaders(), body: JSON.stringify({ id: CUR.id, fields: { 'Closure Notice': CLOSURE_SCAN.map(a => a.id ? { id: a.id } : { url: a.url }) } }) });
+    const j = await r.json();
+    if(!j.ok){ toast('Closure notice NOT saved — ' + (j.error||'rejected by server')); return false; }
+    cache([j.record]);
+    const saved = Array.isArray(j.record['Closure Notice']) ? j.record['Closure Notice'] : [];
+    CLOSURE_SCAN = saved.slice();            // reflect what actually persisted
+    renderClosureScan();
+    if(saved.length < want){                 // the file uploaded but Airtable couldn't attach it
+      toast('⚠ Closure notice did NOT attach — enable PDF delivery in Cloudinary, then re-upload');
+      return false;
+    }
+    toast('Closure notice saved'); return true;
+  }catch(err){ toast('Closure notice NOT saved — ' + err.message); return false; }
+  finally{ if(btn){ btn.disabled=false; btn.textContent=orig; } }
+}
+$('#d-closure-save').onclick = saveClosure;
 $('#d-closure-file').addEventListener('change', async e => {
   if(!CUR) return; const files=[...e.target.files]; e.target.value='';
   for(const file of files){
     const ph=document.createElement('div'); ph.className='thumb-pending'; ph.textContent='…'; $('#d-closure-scan').appendChild(ph);
     try{ const url=await uploadRespondFile(file); CLOSURE_SCAN.push({ url, filename:file.name }); renderClosureScan(); }
-    catch(err){ ph.textContent='!'; ph.title=err.message; }
+    catch(err){ ph.textContent='!'; ph.title=err.message; toast('Upload failed — ' + err.message); }
   }
-  try{
-    const r = await fetch(API, { method:'PATCH', headers: authHeaders(), body: JSON.stringify({ id: CUR.id, fields: { 'Closure Notice': CLOSURE_SCAN.map(a => a.id ? { id: a.id } : { url: a.url }) } }) });
-    const j = await r.json(); if(j.ok){ cache([j.record]); toast('Closure notice saved'); } else toast('Not saved — ' + (j.error||''));
-  }catch(err){ toast('Not saved — ' + err.message); }
+  await saveClosure();
 });
 $('#d-addcomment').onclick = addComment;
 $('#d-comment').addEventListener('keydown', e => { if(e.key==='Enter') addComment(); });
