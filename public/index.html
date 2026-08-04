@@ -1012,6 +1012,13 @@ function reportFiltered(){
     return true;
   });
 }
+// The trend chart uses source-filtered (NOT date-filtered) rows so the month-end
+// backlog line still counts NCs raised before the window; the From/To dates clamp
+// which months are drawn, not which records feed the backlog.
+function reportSourceRows(){
+  const src=$('#r-source').value;
+  return (REPORT_ROWS||[]).filter(n => !src || n.Source===src);
+}
 function reportBreakdowns(rows){
   const byStatus={}, byStd={}, byDiv={}, bySrc={};
   rows.forEach(n=>{
@@ -1035,13 +1042,20 @@ const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','De
 const ymOf = d => (d||'').slice(0,7);
 function niceMax(v){ if(v<=5) return 5; const p=Math.pow(10,Math.floor(Math.log10(v))); const f=v/p; return (f<=1?1:f<=2?2:f<=5?5:10)*p; }
 function monthsBetween(a,b){ const out=[]; let [y,m]=a.split('-').map(Number); const [Y,M]=b.split('-').map(Number); while(y<Y||(y===Y&&m<=M)){ out.push(`${y}-${String(m).padStart(2,'0')}`); if(++m>12){m=1;y++;} if(out.length>720)break; } return out; }
-function computeMonthly(rows){
-  let minYm=null;
-  rows.forEach(n=>{ const r=ymOf(n['Date Raised']); if(r&&(!minYm||r<minYm)) minYm=r; });
-  if(!minYm) return [];
-  let maxYm=minYm; const nowYm=new Date().toISOString().slice(0,7);
-  rows.forEach(n=>{ const r=ymOf(n['Date Raised']); if(r>maxYm)maxYm=r; if(n.Status==='Closed'){ const c=ymOf(n['Date Closed']); if(c>maxYm)maxYm=c; } });
-  if(nowYm>maxYm) maxYm=nowYm;
+// fromYm / toYm (optional 'YYYY-MM') clamp the visible month axis; when omitted the
+// range spans the earliest issued month through the latest activity or the current month.
+function computeMonthly(rows, fromYm, toYm){
+  const raised = rows.map(n=>ymOf(n['Date Raised'])).filter(Boolean);
+  if(!raised.length && !fromYm) return [];
+  let minYm = fromYm || raised.reduce((a,b)=>a<b?a:b);
+  let maxYm;
+  if(toYm){ maxYm = toYm; }
+  else {
+    maxYm = minYm; const nowYm=new Date().toISOString().slice(0,7);
+    rows.forEach(n=>{ const r=ymOf(n['Date Raised']); if(r>maxYm)maxYm=r; if(n.Status==='Closed'){ const c=ymOf(n['Date Closed']); if(c>maxYm)maxYm=c; } });
+    if(nowYm>maxYm) maxYm=nowYm;
+  }
+  if(maxYm<minYm) maxYm=minYm;
   const issued={}, closed={};
   rows.forEach(n=>{ const r=ymOf(n['Date Raised']); if(r) issued[r]=(issued[r]||0)+1;
     if(n.Status==='Closed'){ const c=ymOf(n['Date Closed']); if(c) closed[c]=(closed[c]||0)+1; } });
@@ -1116,7 +1130,7 @@ function renderReport(){
     <div class="kpi done"><b>${closed.length.toLocaleString()}</b><span>Closed</span></div>`;
   const b = reportBreakdowns(rows);
   $('#r-breakdowns').innerHTML = tallyBars('By status',b.byStatus)+tallyBars('By OMM standard',b.byStd)+tallyBars('By division',b.byDiv)+tallyBars('By source',b.bySrc);
-  renderTrend(computeMonthly(rows));
+  renderTrend(computeMonthly(reportSourceRows(), ymOf($('#r-from').value), ymOf($('#r-to').value)));
 }
 function reportCSV(){
   const rows = reportFiltered().slice().sort((a,b)=>String(a['NC #']||'').localeCompare(String(b['NC #']||''), undefined, {numeric:true}));
@@ -1137,7 +1151,7 @@ function reportPDF(){
   line('MRDC Non-Conformance Report',{size:18,bold:true,color:[30,43,94],gap:3});
   line(`Range: ${from||'earliest'} to ${to||'today'}${src?` · ${src}`:''} · generated ${today}`,{size:9,color:[120,120,120],gap:10});
   line(`${rows.length} NCs — ${open.length} open, ${overdue.length} overdue, ${closed.length} closed`,{size:11,bold:true,gap:10});
-  const series=computeMonthly(rows);
+  const series=computeMonthly(reportSourceRows(), ymOf(from), ymOf(to));
   if(series.length){
     if(y+184>740){ doc.addPage(); y=54; }
     line('Monthly trend — issued · closed · open backlog',{size:12,bold:true,color:[30,43,94],gap:6});
@@ -1157,6 +1171,7 @@ function reportPDF(){
 // ---------- wiring ----------
 document.querySelectorAll('.tab').forEach(t => t.onclick = () => showTab(t.dataset.tab));
 $('#r-run').onclick = renderReport;
+['#r-from','#r-to','#r-source'].forEach(id => { const el=$(id); if(el) el.addEventListener('change', renderReport); });
 $('#r-csv').onclick = reportCSV;
 $('#r-pdf').onclick = reportPDF;
 $('#f-go').onclick = applyFilters;
