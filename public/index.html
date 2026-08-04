@@ -1189,6 +1189,7 @@ $('#n-source').addEventListener('change', () => {
 $('#g-help').onclick = () => $('#hv').classList.add('on');
 $('#d-x').onclick = $('#d-cancel').onclick = () => $('#dv').classList.remove('on');
 $('#n-x').onclick = $('#n-cancel').onclick = () => $('#nv').classList.remove('on');
+$('#n-save').onclick = submitNew;   // Raise NC
 $('#h-x').onclick = () => $('#hv').classList.remove('on');
 // Audit file (admin only) — open the record's activity log in its own window.
 $('#d-audit').onclick = () => {
