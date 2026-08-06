@@ -160,7 +160,7 @@ async function at(url, method = 'GET', body) {
 function buildFilter(qs) {
   const parts = [];
   if (qs.nc) parts.push(`{NC #}='${esc(qs.nc)}'`);
-  if (qs.asset) parts.push(`{Asset ID}='${esc(qs.asset)}'`);   // Asset 360 — all NCs for one asset
+  if (qs.asset) parts.push(`FIND('${esc(qs.asset)}', {Asset ID}&'')`);   // Asset 360 — matches even when the NC lists several assets
   // Notice-type scope: 'ncn' = everything except Defect Notices; 'def' = only Defect Notices.
   if (qs.notice === 'ncn') parts.push(`{Notice Type}!='Defect Notice'`);
   else if (qs.notice === 'def') parts.push(`{Notice Type}='Defect Notice'`);

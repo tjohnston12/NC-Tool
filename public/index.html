@@ -214,10 +214,11 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
     <dl id="d-facts"></dl>
 
     <div class="stage"><h3>Non-conformance details</h3>
-      <div class="fieldrow"><label class="f">Asset <span style="text-transform:none;font-weight:400;color:var(--muted)">— the asset this NC concerns; the type is pre-filtered from the OMM standard</span></label>
-        <div style="display:flex;gap:8px">
+      <div class="fieldrow"><label class="f">Assets <span style="text-transform:none;font-weight:400;color:var(--muted)">— the asset(s) this NC concerns; add more than one if it spans several. Type is pre-filtered from the OMM standard</span></label>
+        <div class="chipbox" id="d-assets-box" style="margin-bottom:6px"><span id="d-assets-chips"></span></div>
+        <div id="d-asset-add-row" style="display:flex;gap:8px">
           <select id="d-asset-type" style="max-width:180px;flex:0 0 auto"><option value="">All types</option></select>
-          <input id="d-asset" list="asset-list" type="text" placeholder="Search asset number, ID or name…" autocomplete="off" style="flex:1">
+          <input id="d-asset" list="asset-list" type="text" placeholder="Search asset number, ID or name, then pick to add…" autocomplete="off" style="flex:1">
         </div>
         <datalist id="asset-list"></datalist>
         <div id="d-asset-info" class="small" style="margin-top:5px;min-height:16px"></div></div>
@@ -485,6 +486,42 @@ function renderAssetInfo(){
   const bits = [a.asset_ref ? `No. ${esc(a.asset_ref)}` : '', a.name ? esc(a.name) : '(unnamed)', a.category ? esc(a.category) : '', loc].filter(Boolean).join(' · ');
   const link = `https://assets.mrdc-htra.com/?id=${encodeURIComponent(id)}`;
   box.innerHTML = `<span class="muted">${bits}</span> — <a href="${link}" target="_blank" rel="noopener" style="font-weight:600">Open asset ↗</a>`;
+}
+// Multiple assets per NC. Stored in the single "Asset ID" text field as a
+// '; '-joined list of asset ids; the API's ?asset= filter matches membership, so
+// Asset 360 still finds an NC that lists several assets. Mirrors the Reviewers
+// chip picker, but the "add" control is the searchable asset box above.
+let ASSETS_SEL = [];
+function initAssets(current){
+  ASSETS_SEL = String(current || '').split(/[;\n,]+/).map(s => s.trim()).filter(Boolean);
+  renderAssetChips();
+}
+function assetChipLabel(id){
+  const a = ASSET_BY_ID[id];
+  if (!a) return esc(id);
+  const main = a.asset_ref ? `No. ${esc(a.asset_ref)}` : esc(id);
+  return a.name ? `${main} — ${esc(a.name)}` : main;
+}
+function renderAssetChips(){
+  const box = $('#d-assets-chips'); if (!box) return;
+  if (!ASSETS_SEL.length){ box.innerHTML = '<span class="muted small">No asset linked yet — search below to add one or more.</span>'; return; }
+  box.innerHTML = ASSETS_SEL.map((id,i) => {
+    const known = !!ASSET_BY_ID[id];
+    const link = `https://assets.mrdc-htra.com/?id=${encodeURIComponent(id)}`;
+    const warn = known ? '' : ' style="background:#FBEEDB;border-color:#E6CE9B" title="Not found in the asset register — check the ID"';
+    return `<span class="chip"${warn}>${assetChipLabel(id)}`+
+      ` <a href="${link}" target="_blank" rel="noopener" title="Open asset ↗" style="color:#1E5FBF;text-decoration:none;padding:0 2px;font-weight:700">↗</a>`+
+      `<button type="button" data-i="${i}" title="Remove">×</button></span>`;
+  }).join('');
+}
+function getAssets(){ return ASSETS_SEL.join('; '); }
+function addAssetFromInput(){
+  const inp = $('#d-asset'); if (!inp) return;
+  const id = inp.value.trim();
+  if (!id) return;
+  if (!ASSET_BY_ID[id]){ renderAssetInfo(); return; }   // unknown id — keep it in the box + show "not found"
+  if (!ASSETS_SEL.includes(id)) ASSETS_SEL.push(id);
+  inp.value = ''; renderAssetChips(); renderAssetInfo();
 }
 // Fill a Responsible-person <select> with the manager list, preserving any current value
 // (even a non-manager already on the record) so saving never silently drops it.
@@ -827,7 +864,7 @@ function openNC(id){
     <dt>Source</dt><dd>${esc(n.Source||'—')}${n['Source Reference']?` · ${esc(n['Source Reference'])}`:''}</dd>
     ${Array.isArray(n['Files']) && n['Files'].length ? `<dt>Files</dt><dd>${n['Files'].map(f=>`<a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(f.filename||'file')}</a>`).join(' · ')}</dd>` : ''}
     ${n['Attachment URLs'] ? `<dt>Links</dt><dd>${String(n['Attachment URLs']).split(/\n+/).filter(Boolean).map((u,i)=>`<a href="${linkUrl(u)}" target="_blank" rel="noopener">file ${i+1}</a>`).join(' · ')}</dd>` : ''}`;
-  setV('#d-asset', n['Asset ID']); setAssetTypeFromStandard(n['Standard / Clause']); renderAssetInfo();
+  $('#d-asset').value=''; initAssets(n['Asset ID']); setAssetTypeFromStandard(n['Standard / Clause']); renderAssetInfo();
   setV('#d-clause', n['Standard / Clause']); setV('#d-req', n['Requirement']); setV('#d-desc', n['Description']);
   setV('#d-status', n.Status || 'New'); setV('#d-class', n.Classification);
   setV('#d-due', n['Due Date']); setV('#d-division', n.Division); fillRespSelect($('#d-resp'), n['Responsible Person']);
@@ -842,6 +879,8 @@ function openNC(id){
   const editable = CAN_WORK;
   document.querySelectorAll('#dv select, #dv textarea, #dv input:not(#d-comment)').forEach(el => el.disabled = !editable);
   $('#d-reviewers-box').classList.toggle('ro', !editable);   // hide add/remove controls when read-only
+  $('#d-assets-box').classList.toggle('ro', !editable);
+  { const ar=$('#d-asset-add-row'); if(ar) ar.style.display = editable ? '' : 'none'; }
   $('#d-verifybox').style.display = '';
   document.querySelectorAll('#d-verifybox input, #d-verifybox textarea').forEach(el => el.disabled = !IS_ADMIN);
   $('#d-save').style.display = editable ? '' : 'none';
@@ -905,7 +944,7 @@ async function saveNC(){
   if(!CUR) return;
   const fields = {
     'Status': $('#d-status').value, 'Classification': $('#d-class').value || null,
-    'Asset ID': $('#d-asset').value.trim() || null,
+    'Asset ID': getAssets() || null,
     'Standard / Clause': $('#d-clause').value, 'Requirement': $('#d-req').value, 'Description': $('#d-desc').value,
     'Due Date': $('#d-due').value || null, 'Division': $('#d-division').value || null,
     'Responsible Person': $('#d-resp').value,
@@ -1317,6 +1356,9 @@ $('#ar-x').onclick = () => $('#arv').classList.remove('on');
 $('#d-reviewers-add').onchange = function(){ const v=this.value; if(v && !REVIEWERS_SEL.some(x=>x.toLowerCase()===v.toLowerCase())){ REVIEWERS_SEL.push(v); renderReviewerChips(); renderReviewerAdd(); } this.value=''; };
 $('#d-reviewers-chips').onclick = function(e){ const b=e.target.closest('button[data-i]'); if(!b) return; REVIEWERS_SEL.splice(+b.dataset.i,1); renderReviewerChips(); renderReviewerAdd(); };
 $('#d-asset').addEventListener('input', renderAssetInfo);
+$('#d-asset').addEventListener('change', addAssetFromInput);
+$('#d-asset').addEventListener('keydown', e => { if(e.key==='Enter'){ e.preventDefault(); addAssetFromInput(); } });
+$('#d-assets-chips').onclick = function(e){ const b=e.target.closest('button[data-i]'); if(!b) return; ASSETS_SEL.splice(+b.dataset.i,1); renderAssetChips(); };
 $('#d-asset-type').addEventListener('change', buildAssetList);
 $('#a-copy').onclick = async () => {
   try { await navigator.clipboard.writeText($('#d-log').textContent || ''); toast('Audit log copied'); }
