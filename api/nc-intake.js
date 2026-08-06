@@ -157,6 +157,56 @@ async function importClosures(list) {
   return { closed, skipped, notFound, errors };
 }
 
+// Internal NCs raised by another MRDC system (e.g. a Quality OMM audit item graded
+// NC, routed through the DMT). No externally-issued number, so we auto-assign the
+// next NC-YYYY-NNN. Idempotent by Source Reference — the same work order / audit
+// item never raises a second NC.
+async function importInternal(list) {
+  const created = [], skipped = [], errors = [];
+  const year = new Date().getFullYear();
+  // Current highest sequence for the year, incremented locally across the batch.
+  let seq = 0;
+  try {
+    const j = await at(`${AT_NC}?filterByFormula=${encodeURIComponent(`FIND('NC-${year}-',{NC #})=1`)}` +
+      `&sort%5B0%5D%5Bfield%5D=${encodeURIComponent('NC #')}&sort%5B0%5D%5Bdirection%5D=desc&maxRecords=1`);
+    const m = (j.records || [])[0] && String(j.records[0].fields['NC #'] || '').match(/NC-\d{4}-(\d+)/);
+    if (m) seq = parseInt(m[1], 10);
+  } catch { seq = 0; }
+  for (const it of list) {
+    const sourceRef = String(it.sourceRef || it.sourceReference || '').trim();
+    try {
+      if (sourceRef) {
+        const dup = await findOne(AT_NC, 'Source Reference', sourceRef);
+        if (dup) { skipped.push({ sourceRef, nc: dup.fields['NC #'] }); continue; }
+      }
+      const raised = isDate(it.dateRaised) ? it.dateRaised : today();
+      const due = isDate(it.dueDate) ? it.dueDate : addBusinessDays(raised, 10);
+      const nc = `NC-${year}-${String(++seq).padStart(3, '0')}`;
+      const stamp = `[${today()} · Auto-intake] NC raised${sourceRef ? ` from ${sourceRef}` : ''}.`;
+      const fields = {
+        'NC #': nc,
+        'Source': it.source || 'Quality Audit',
+        'Notice Type': 'Internal NC',
+        'Status': 'New',
+        'Date Raised': raised,
+        'Due Date': due,
+        'Raised By': it.raisedBy || 'Quality audit',
+        'Submitted At': new Date().toISOString(),
+        'Activity Log': stamp,
+      };
+      if (it.standard)    fields['Standard / Clause'] = it.standard;
+      if (it.description) fields['Description'] = it.description;
+      if (sourceRef)      fields['Source Reference'] = sourceRef;
+      if (it.assetId)     fields['Asset ID'] = it.assetId;
+      if (it.division)    fields['Division'] = it.division;
+      if (it.priority)    fields['Priority'] = it.priority;
+      const j = await at(AT_NC, 'POST', { records: [{ fields }], typecast: true });
+      created.push({ nc, id: j.records[0].id, sourceRef });
+    } catch (e) { errors.push({ key: sourceRef || null, error: e.message }); }
+  }
+  return { created, skipped, errors };
+}
+
 module.exports = async (req, res) => {
   if (!PAT || !BASE) { res.status(500).json({ ok: false, error: 'AIRTABLE_PAT and NC_BASE_ID must be set' }); return; }
   if (!SECRET) { res.status(500).json({ ok: false, error: 'INTAKE_SECRET is not configured' }); return; }
@@ -168,13 +218,15 @@ module.exports = async (req, res) => {
     const notices  = Array.isArray(body.notices)  ? body.notices  : (body.nc && !body.effectiveDate ? [body] : []);
     const audits   = Array.isArray(body.audits)   ? body.audits   : (body.report ? [body] : []);
     const closures = Array.isArray(body.closures) ? body.closures : (body.nc && body.effectiveDate ? [body] : []);
-    if (!notices.length && !audits.length && !closures.length) { res.status(400).json({ ok: false, error: 'no notices, audits or closures in body' }); return; }
+    const internal = Array.isArray(body.internal) ? body.internal : [];
+    if (!notices.length && !audits.length && !closures.length && !internal.length) { res.status(400).json({ ok: false, error: 'no notices, audits, closures or internal NCs in body' }); return; }
 
     const nRes = notices.length  ? await importNotices(notices)   : { created: [], skipped: [], errors: [] };
     const aRes = audits.length   ? await importAudits(audits)     : { created: [], skipped: [], errors: [] };
     const cRes = closures.length ? await importClosures(closures) : { closed: [], skipped: [], notFound: [], errors: [] };
-    const ok = nRes.errors.length === 0 && aRes.errors.length === 0 && cRes.errors.length === 0;
-    res.status(200).json({ ok, notices: nRes, audits: aRes, closures: cRes });
+    const iRes = internal.length ? await importInternal(internal) : { created: [], skipped: [], errors: [] };
+    const ok = nRes.errors.length === 0 && aRes.errors.length === 0 && cRes.errors.length === 0 && iRes.errors.length === 0;
+    res.status(200).json({ ok, notices: nRes, audits: aRes, closures: cRes, internal: iRes });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }
