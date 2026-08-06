@@ -245,6 +245,16 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
         <div class="chipbox" id="d-reviewers-box"><span id="d-reviewers-chips"></span><select id="d-reviewers-add" class="chip-add"><option value="">+ Add reviewer…</option></select></div></div>
     </div>
 
+    <div class="stage respond" id="d-respondbox"><h3>Respond — corrective response &amp; evidence</h3>
+      <div class="respond-meta" id="d-respond-meta"></div>
+      <label class="f">Response checklist</label>
+      <div class="checklist" id="d-checklist"></div>
+      <label class="f" style="margin-top:14px">Response files &amp; photos of repairs</label>
+      <div class="thumbs" id="d-respondfiles"></div>
+      <label class="photo-btn" id="d-upload-label"><input type="file" id="d-respond-file" accept="image/*,application/pdf" multiple hidden> + Add files / photos</label>
+      <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px"><button class="btn" id="d-respond-ready" style="display:none">Mark ready for review</button><button class="btn wine" id="d-respond-save" style="display:none">Save response</button></div>
+    </div>
+
     <div class="stage" id="d-planbox"><h3>Action plan <span style="text-transform:none;font-weight:400;color:var(--muted)">— steps toward correcting the NC; start within 5 working days of issue</span></h3>
       <div class="respond-meta" id="d-plan-status"></div>
       <div id="d-plan-steps"></div>
@@ -265,6 +275,9 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
       <div class="fieldrow"><label class="f">Corrective action (eliminates the root cause)</label><textarea id="d-corrective"></textarea></div>
       <div class="fieldrow"><label class="f">Preventive action (optional — stops recurrence elsewhere)</label><textarea id="d-preventive"></textarea></div>
       <div class="fieldrow" style="max-width:230px"><label class="f">Date action completed</label><input type="date" id="d-done"></div></div>
+
+    <hr style="border:none;border-top:2px dashed var(--wine);margin:26px 0 12px">
+    <div style="font-size:12px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--wine);margin:0 0 12px">MRDC admin — internal use only</div>
 
     <div class="stage admin" id="d-letterbox" style="display:none"><h3>Province response letter — NC admin</h3>
       <div class="small muted" style="margin-bottom:8px">Draft the letter to NBHC, edit as needed, then print, sign and mail it. Upload the signed scan and mark the letter sent.</div>
@@ -290,16 +303,6 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
       <label class="f" style="margin-top:6px">Closure notice from NBHC (PDF)</label>
       <div class="thumbs" id="d-closure-scan"></div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><label class="photo-btn" id="d-closure-upload-label"><input type="file" id="d-closure-file" accept="application/pdf,image/*" multiple hidden> + Upload closure notice</label><button class="btn sm wine" id="d-closure-save">Save closure notice</button></div></div>
-
-    <div class="stage respond" id="d-respondbox"><h3>Respond — corrective response &amp; evidence</h3>
-      <div class="respond-meta" id="d-respond-meta"></div>
-      <label class="f">Response checklist</label>
-      <div class="checklist" id="d-checklist"></div>
-      <label class="f" style="margin-top:14px">Response files &amp; photos of repairs</label>
-      <div class="thumbs" id="d-respondfiles"></div>
-      <label class="photo-btn" id="d-upload-label"><input type="file" id="d-respond-file" accept="image/*,application/pdf" multiple hidden> + Add files / photos</label>
-      <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px"><button class="btn" id="d-respond-ready" style="display:none">Mark ready for review</button><button class="btn wine" id="d-respond-save" style="display:none">Save response</button></div>
-    </div>
 
     <div class="fieldrow"><label class="f">Add a comment</label>
       <div style="display:flex;gap:8px"><input id="d-comment" type="text" placeholder="Stamped into the activity log…" style="flex:1;padding:8px 10px;border:1px solid var(--line);border-radius:8px">
