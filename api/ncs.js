@@ -60,7 +60,7 @@ const MANAGER_FIELDS = new Set([
   'Corrective Action', 'Preventive Action', 'Date Action Completed',
   'Attachment URLs', 'Status',
   'Priority', 'Reviewers', 'Response Checklist', 'Response Files',
-  'Action Plan', 'Action Plan Started', 'Asset ID',
+  'Action Plan', 'Action Plan Started', 'Asset ID', 'Notice Type',
 ]);
 const ADMIN_FIELDS = new Set([
   'Verified By', 'Date Verified', 'Verification Notes', 'Date Closed',
