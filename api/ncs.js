@@ -61,6 +61,13 @@ const MANAGER_FIELDS = new Set([
   'Attachment URLs', 'Status',
   'Priority', 'Reviewers', 'Response Checklist', 'Response Files',
   'Action Plan', 'Action Plan Started', 'Asset ID', 'Notice Type',
+  // The audit evidence itself — the report, notice, photos or worksheets the NC
+  // was raised from. Attachable when the NC is issued (and afterwards), so the
+  // paperwork lands with the NC instead of being chased later. This is the same
+  // 'Files' field the legacy NBHC attachments were migrated into, and it is
+  // already covered by AUDIT_FILE_FIELDS below, so uploads/removals show up in
+  // the Activity Log by filename.
+  'Files',
 ]);
 const ADMIN_FIELDS = new Set([
   'Verified By', 'Date Verified', 'Verification Notes', 'Date Closed',
@@ -166,6 +173,10 @@ function buildFilter(qs) {
   else if (qs.notice === 'def') parts.push(`{Notice Type}='Defect Notice'`);
   if (qs.status === 'open') parts.push(`AND({Status}!='Closed',{Status}!='Cancelled')`);
   else if (qs.status === 'overdue') parts.push(`AND({Status}!='Closed',{Status}!='Cancelled',{Due Date}<'${today()}')`);
+  // "lettersent" = a response letter has actually been sent (Letter Date Sent stamped),
+  // regardless of current status. A sent NC usually moves on to Closed, so filtering by
+  // the transient 'Letter Sent' STATUS would miss them — match the date field instead.
+  else if (qs.status === 'lettersent') parts.push(`{Letter Date Sent}!=''`);
   else if (qs.status) parts.push(`{Status}='${esc(qs.status)}'`);
   if (qs.classification) parts.push(`{Classification}='${esc(qs.classification)}'`);
   if (qs.source) parts.push(`{Source}='${esc(qs.source)}'`);
@@ -228,7 +239,7 @@ async function auditsList() {
 }
 
 async function stats() {
-  const acc = { total: 0, open: 0, overdue: 0, majorOpen: 0, closed: 0,
+  const acc = { total: 0, open: 0, overdue: 0, majorOpen: 0, closed: 0, lettersSent: 0,
     provincial: { total: 0, open: 0 }, internal: { total: 0, open: 0 },
     provNCN: { total: 0, open: 0 }, provDEF: { total: 0, open: 0 },
     bySource: {}, byClassification: {}, byDivision: {}, byStatus: {}, byStandard: {} };
@@ -237,7 +248,7 @@ async function stats() {
   do {
     const p = new URLSearchParams();
     p.set('pageSize', '100');
-    ['Status', 'Classification', 'Source', 'Division', 'Due Date', 'Standard / Clause', 'Notice Type'].forEach(f => p.append('fields[]', f));
+    ['Status', 'Classification', 'Source', 'Division', 'Due Date', 'Standard / Clause', 'Notice Type', 'Letter Date Sent'].forEach(f => p.append('fields[]', f));
     if (offset) p.set('offset', offset);
     const json = await at(`${AT}?${p.toString()}`);
     for (const r of json.records) {
@@ -245,6 +256,7 @@ async function stats() {
       const st = f['Status'] || 'New';
       acc.total++;
       acc.byStatus[st] = (acc.byStatus[st] || 0) + 1;
+      if (f['Letter Date Sent']) acc.lettersSent++;   // response letters actually sent (any status)
       // Provincial vs Internal split — strictly by audit Source (other sources in neither)
       const src = f['Source'];
       if (src === 'Provincial Audit') {

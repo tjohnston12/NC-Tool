@@ -150,6 +150,7 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
       <select id="f-status">
         <option value="open">All open</option><option value="">All</option>
         <option value="overdue">Overdue</option>
+        <option value="lettersent">Letter sent (any status)</option>
         <option>New</option><option>Containment</option><option>Root Cause</option>
         <option>Corrective Action</option><option>Ready for Review</option><option>Letter Sent</option><option>Verification</option>
         <option>Closed</option><option>Cancelled</option>
@@ -341,6 +342,12 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
     </div>
     <div class="fieldrow"><label class="f">Requirement (what the standard requires)</label><textarea id="n-req"></textarea></div>
     <div class="fieldrow"><label class="f">Description of the non-conformance *</label><textarea id="n-desc" placeholder="What was found, where, and the evidence…"></textarea></div>
+    <div class="fieldrow"><label class="f">Audit files <span style="text-transform:none;font-weight:400;color:var(--muted)">— the report, notice, photos or worksheets this NC comes from</span></label>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <label class="photo-btn" id="n-files-label"><input type="file" id="n-files-input" accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.msg" multiple hidden> + Attach audit files</label>
+        <span class="muted small" id="n-files-status"></span>
+      </div>
+      <div id="n-files" style="margin-top:6px"></div></div>
   </div>
   <div class="btnrow">
     <button class="btn ghost" id="n-cancel">Cancel</button>
@@ -619,12 +626,12 @@ function renderKpis(){
   $('#kpis').innerHTML = `
     <div class="kpi over" data-k="overdue"><b>${s?s.overdue.toLocaleString():'…'}</b><span>Overdue</span></div>
     <div class="kpi major" data-k="major"><b>${s?s.majorOpen.toLocaleString():'…'}</b><span>Major open</span></div>
-    <div class="kpi sent" data-k="lettersent"><b>${s?((s.byStatus&&s.byStatus['Letter Sent'])||0).toLocaleString():'…'}</b><span>Letter Sent</span></div>
+    <div class="kpi sent" data-k="lettersent"><b>${s?((s.lettersSent!=null?s.lettersSent:((s.byStatus&&s.byStatus['Letter Sent'])||0))).toLocaleString():'…'}</b><span>Letters Sent</span></div>
     <div class="kpi done" data-k="closed"><b>${s?s.closed.toLocaleString():'…'}</b><span>Closed</span></div>`;
   document.querySelectorAll('.kpi').forEach(k => k.onclick = () => {
     const m = k.dataset.k;
     clearFilters();
-    $('#f-status').value = m==='overdue' ? 'overdue' : m==='closed' ? 'Closed' : m==='lettersent' ? 'Letter Sent' : 'open';
+    $('#f-status').value = m==='overdue' ? 'overdue' : m==='closed' ? 'Closed' : m==='lettersent' ? 'lettersent' : 'open';
     $('#f-class').value = m==='major' ? 'Major' : '';
     applyFilters();
   });
@@ -981,10 +988,61 @@ async function addComment(){
 }
 
 // ---------- new NC ----------
+/* Audit files chosen while raising an NC. Uploaded to Cloudinary as they are
+   picked (same path the response files use), then handed to Airtable as
+   {url, filename} on the Files field when the NC is created — so the evidence
+   is attached at the moment of issue rather than chased afterwards. */
+let NEW_FILES = [];
+
+function renderNewFiles(){
+  const box = $('#n-files');
+  if(!NEW_FILES.length){ box.innerHTML = '<span class="muted small">No audit files attached yet.</span>'; return; }
+  box.innerHTML = NEW_FILES.map((f,i) =>
+    `<span class="pill" style="display:inline-flex;align-items:center;gap:6px;margin:0 6px 6px 0">
+       <a href="${linkUrl(f.url)}" target="_blank" rel="noopener" title="${esc(f.filename)}">${esc(f.filename.length>28?f.filename.slice(0,27)+'…':f.filename)}</a>
+       <button type="button" data-rm="${i}" title="Remove" style="border:none;background:none;cursor:pointer;font-weight:700;color:var(--muted);padding:0 2px">×</button>
+     </span>`).join('');
+  box.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => {
+    NEW_FILES.splice(+b.getAttribute('data-rm'), 1); renderNewFiles();
+  });
+}
+
+async function addNewFiles(files){
+  const list = Array.from(files || []); if(!list.length) return;
+  const st = $('#n-files-status'), lbl = $('#n-files-label');
+  lbl.classList.add('disabled');
+  let done = 0;
+  for(const file of list){
+    st.textContent = `Uploading ${++done} of ${list.length}…`;
+    try{
+      const url = await uploadAuditFile(file);
+      NEW_FILES.push({ url, filename: file.name });
+      renderNewFiles();
+    }catch(e){
+      st.textContent = '';
+      lbl.classList.remove('disabled');
+      toast(`Could not upload ${file.name} — ${e.message}`);
+      return;
+    }
+  }
+  st.textContent = NEW_FILES.length + ' file(s) ready';
+  lbl.classList.remove('disabled');
+}
+
+async function uploadAuditFile(file){
+  const fd = new FormData();
+  fd.append('file', file); fd.append('upload_preset', UPLOAD_PRESET); fd.append('folder', 'nc-audit-files');
+  const r = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/auto/upload`, { method:'POST', body:fd });
+  const j = await r.json().catch(()=>({}));
+  if(!r.ok || !j.secure_url) throw new Error((j.error && j.error.message) || ('Upload failed ('+r.status+')'));
+  return j.secure_url;
+}
+
 function openNew(){
   ['#n-ref','#n-ncn','#n-clause','#n-req','#n-desc'].forEach(id=>$(id).value=''); fillRespSelect($('#n-resp'), '');
   $('#n-date').value = today(); $('#n-due').value=''; $('#n-division').value='';
   $('#n-source').value='Quality Audit'; $('#n-class').value='Minor';
+  NEW_FILES = []; $('#n-files-status').textContent=''; $('#n-files-input').value=''; renderNewFiles();
   $('#nv').classList.add('on');
 }
 async function submitNew(){
@@ -998,12 +1056,15 @@ async function submitNew(){
     'Standard / Clause': $('#n-clause').value, 'Responsible Person': $('#n-resp').value,
     'Requirement': $('#n-req').value, 'Description': desc,
   };
+  // Attach the audit evidence with the NC itself.
+  if(NEW_FILES.length) fields['Files'] = NEW_FILES.map(f => ({ url: f.url, filename: f.filename }));
   const btn=$('#n-save'); btn.disabled=true; btn.textContent='Raising…';
   try{
     const r = await fetch(API, { method:'POST', headers: authHeaders(), body: JSON.stringify({ fields }) });
     const j = await r.json();
     if(!j.ok) throw new Error(j.error||'failed');
-    toast(`${j.record['NC #']} raised`);
+    toast(`${j.record['NC #']} raised` + (NEW_FILES.length ? ` with ${NEW_FILES.length} audit file(s)` : ''));
+    NEW_FILES = [];
     $('#nv').classList.remove('on');
     cache([j.record]); applyFilters(); refreshStats();
   }catch(e){ toast('Could not raise NC — ' + e.message); }
@@ -1341,6 +1402,7 @@ $('#n-source').addEventListener('change', () => {
 $('#g-help').onclick = () => $('#hv').classList.add('on');
 $('#d-x').onclick = $('#d-cancel').onclick = () => $('#dv').classList.remove('on');
 $('#n-x').onclick = $('#n-cancel').onclick = () => $('#nv').classList.remove('on');
+$('#n-files-input').addEventListener('change', e => { addNewFiles(e.target.files); e.target.value=''; });
 $('#n-save').onclick = submitNew;   // Raise NC
 $('#h-x').onclick = () => $('#hv').classList.remove('on');
 // Audit file (admin only) — open the record's activity log in its own window.
