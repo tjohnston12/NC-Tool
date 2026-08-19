@@ -150,7 +150,7 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
       <select id="f-status">
         <option value="open">All open</option><option value="">All</option>
         <option value="overdue">Overdue</option>
-        <option value="lettersent">Letter sent (any status)</option>
+        <option value="lettersent">Awaiting reply (letter sent, still open)</option>
         <option>New</option><option>Containment</option><option>Root Cause</option>
         <option>Corrective Action</option><option>Ready for Review</option><option>Letter Sent</option><option>Verification</option>
         <option>Closed</option><option>Cancelled</option>
@@ -626,7 +626,7 @@ function renderKpis(){
   $('#kpis').innerHTML = `
     <div class="kpi over" data-k="overdue"><b>${s?s.overdue.toLocaleString():'…'}</b><span>Overdue</span></div>
     <div class="kpi major" data-k="major"><b>${s?s.majorOpen.toLocaleString():'…'}</b><span>Major open</span></div>
-    <div class="kpi sent" data-k="lettersent"><b>${s?((s.lettersSent!=null?s.lettersSent:((s.byStatus&&s.byStatus['Letter Sent'])||0))).toLocaleString():'…'}</b><span>Letters Sent</span></div>
+    <div class="kpi sent" data-k="lettersent" title="A response letter has gone out and the NC is still open — closed NCs are not counted"><b>${s?((s.lettersSent!=null?s.lettersSent:((s.byStatus&&s.byStatus['Letter Sent'])||0))).toLocaleString():'…'}</b><span>Awaiting Reply</span></div>
     <div class="kpi done" data-k="closed"><b>${s?s.closed.toLocaleString():'…'}</b><span>Closed</span></div>`;
   document.querySelectorAll('.kpi').forEach(k => k.onclick = () => {
     const m = k.dataset.k;

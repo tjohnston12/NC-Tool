@@ -173,10 +173,17 @@ function buildFilter(qs) {
   else if (qs.notice === 'def') parts.push(`{Notice Type}='Defect Notice'`);
   if (qs.status === 'open') parts.push(`AND({Status}!='Closed',{Status}!='Cancelled')`);
   else if (qs.status === 'overdue') parts.push(`AND({Status}!='Closed',{Status}!='Cancelled',{Due Date}<'${today()}')`);
-  // "lettersent" = a response letter has actually been sent (Letter Date Sent stamped),
-  // regardless of current status. A sent NC usually moves on to Closed, so filtering by
-  // the transient 'Letter Sent' STATUS would miss them — match the date field instead.
-  else if (qs.status === 'lettersent') parts.push(`{Letter Date Sent}!=''`);
+  // "lettersent" = AWAITING REPLY: a response letter has gone out (Letter Date
+  // Sent is stamped) and the NC is still open. Matching the date field rather
+  // than the transient 'Letter Sent' STATUS is deliberate — an NC moves on
+  // through Verification while the letter is still outstanding, so the status
+  // alone would miss most of them.
+  //
+  // Closed and Cancelled are excluded (Troy, 2026-08-19): once an NC is closed
+  // nobody is waiting on a reply, so counting it overstates the outstanding work.
+  else if (qs.status === 'lettersent') {
+    parts.push(`AND({Letter Date Sent}!='',{Status}!='Closed',{Status}!='Cancelled')`);
+  }
   else if (qs.status) parts.push(`{Status}='${esc(qs.status)}'`);
   if (qs.classification) parts.push(`{Classification}='${esc(qs.classification)}'`);
   if (qs.source) parts.push(`{Source}='${esc(qs.source)}'`);
@@ -256,7 +263,9 @@ async function stats() {
       const st = f['Status'] || 'New';
       acc.total++;
       acc.byStatus[st] = (acc.byStatus[st] || 0) + 1;
-      if (f['Letter Date Sent']) acc.lettersSent++;   // response letters actually sent (any status)
+      // Awaiting reply: letter sent AND still open. Must match the 'lettersent'
+      // filter above, or the tile's number and the list it opens disagree.
+      if (f['Letter Date Sent'] && !TERMINAL.includes(st)) acc.lettersSent++;
       // Provincial vs Internal split — strictly by audit Source (other sources in neither)
       const src = f['Source'];
       if (src === 'Provincial Audit') {
