@@ -26,7 +26,7 @@
  * re-running is always safe. Widen the window for a catch-up: ?days=120
  *
  * Triggered by Vercel Cron (see vercel.json).
- * Manual:  /api/nc-mail-intake?preview=1              — parse and report, write NOTHING
+ * Manual:  /api/nc-mail-intake?preview=1&token=<CRON_SECRET>   — parse and report, write NOTHING
  *          /api/nc-mail-intake?token=<CRON_SECRET>    — force a real run
  *          &days=90                                   — widen the lookback
  *          &debug=1                                   — include per-message parse detail
@@ -386,8 +386,21 @@ module.exports = async (req, res) => {
   const isCron = !!req.headers['x-vercel-cron'];
   const token = q.token || String(req.headers['authorization'] || '').replace(/^Bearer\s+/i, '');
   const preview = q.preview === '1' || q.preview === 'true';
-  if (!isCron && CRON_SECRET && token !== CRON_SECRET) {
-    res.status(401).json({ ok: false, error: 'unauthorized' }); return;
+  // Compare trimmed: a Vercel env value pasted with a trailing newline is invisible in the
+  // dashboard (and unreadable once marked Sensitive) but breaks an exact ===. This project has
+  // already lost an afternoon to stray whitespace in env values once.
+  // Fails CLOSED: if CRON_SECRET is missing entirely, deny rather than run. This endpoint writes,
+  // so an unset variable must not leave it open. Vercel Cron still gets in via x-vercel-cron.
+  const expected = String(CRON_SECRET || '').trim();
+  if (!isCron && (!expected || String(token).trim() !== expected)) {
+    res.status(401).json({
+      ok: false,
+      error: 'unauthorized',
+      hint: CRON_SECRET
+        ? 'token did not match CRON_SECRET (compared with surrounding whitespace ignored)'
+        : 'CRON_SECRET is not set on this deployment, so manual runs are refused',
+    });
+    return;
   }
   if (!TENANT || !CLIENT || !CSECRET) {
     res.status(500).json({
