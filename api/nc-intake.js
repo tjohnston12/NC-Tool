@@ -1,9 +1,15 @@
 /*
  * NC — /api/nc-intake
  * -------------------
- * Machine intake for provincial notices, audit reports AND closures, called by
- * Power Automate flows that watch the mailbox for NBHC / @gnb.ca emails.
- * Secret-gated (not the user SSO) so an unattended flow can post to it.
+ * Machine intake for provincial notices, audit reports AND closures.
+ * Secret-gated (not the user SSO) so an unattended caller can post to it.
+ *
+ * Two callers:
+ *   1. /api/nc-mail-intake — the Graph mailbox poller (the live path; it requires the
+ *      importers below directly rather than posting over HTTP).
+ *   2. Anything external holding INTAKE_SECRET, over HTTP, as documented here.
+ * (The Power Automate flow this was originally written for was never built — Troy's
+ * licence has Premium connectors disabled, so its HTTP action was unavailable.)
  *
  * POST /api/nc-intake
  *   headers: x-intake-key: <INTAKE_SECRET>
@@ -74,7 +80,7 @@ async function importNotices(list) {
       if (await existsBy(AT_NC, 'NC #', nc)) { skipped.push(nc); continue; }
       const raised = isDate(n.dateRaised) ? n.dateRaised : today();
       const due = isDate(n.dueDate) ? n.dueDate : addBusinessDays(raised, 10);
-      const stamp = `[${today()} · Email intake] Created from provincial notice email via Power Automate.`;
+      const stamp = `[${today()} · Email intake] Created from the provincial notice email.`;
       const fields = {
         'NC #': nc,
         'Source': n.source || 'Provincial Audit',
@@ -106,7 +112,7 @@ async function importAudits(list) {
     if (!report) { errors.push({ key: null, error: 'missing report' }); continue; }
     try {
       if (await existsBy(AT_AUDIT, 'Report #', report)) { skipped.push(report); continue; }
-      const stamp = `[${today()} · Email intake] Filed from provincial audit email via Power Automate.`;
+      const stamp = `[${today()} · Email intake] Filed from the provincial audit email.`;
       const fields = {
         'Report #': report,
         'Source': a.source || 'Provincial Audit',
@@ -231,3 +237,11 @@ module.exports = async (req, res) => {
     res.status(500).json({ ok: false, error: e.message });
   }
 };
+
+// Also expose the importers so /api/nc-mail-intake can reuse them in-process instead of
+// posting back to this endpoint over HTTP. Attaching properties to the exported handler
+// leaves the Vercel entry point (the function itself) unchanged.
+module.exports.importNotices  = importNotices;
+module.exports.importAudits   = importAudits;
+module.exports.importClosures = importClosures;
+module.exports.importInternal = importInternal;
