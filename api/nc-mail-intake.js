@@ -355,9 +355,14 @@ async function parseMessage(token, msg, { upload }) {
   return out;
 }
 
-async function notify(summary, host) {
+// The NC front-end now lives at www.mrdc-htra.com/nc/ while this API stays on
+// nc.mrdc-htra.com, so links in outbound email must NOT be derived from the
+// request host — that would send people back to the old address.
+const APP_URL = process.env.NC_APP_URL || 'https://www.mrdc-htra.com/nc';
+
+async function notify(summary) {
   if (!RESEND_KEY) return false;
-  const link = host ? `<p><a href="https://${host}/">Open the NC tool</a></p>` : '';
+  const link = `<p><a href="${APP_URL}/">Open the NC tool</a></p>`;
   const li = a => a.length ? `<ul>${a.map(x => `<li>${x}</li>`).join('')}</ul>` : '<p style="color:#888">none</p>';
   const html = `<div style="font-family:Segoe UI,Arial,sans-serif;max-width:640px">
     <h2 style="color:#8A2D5B">Provincial email intake</h2>
@@ -474,7 +479,7 @@ module.exports = async (req, res) => {
     const didSomething = summary.noticesCreated.length || summary.auditsCreated.length ||
       summary.closed.length || summary.backfilled.length;
     let emailed = false;
-    if (didSomething) emailed = await notify(summary, req.headers['x-forwarded-host'] || req.headers.host);
+    if (didSomething) emailed = await notify(summary);
 
     const ok = !nRes.errors.length && !aRes.errors.length && !cRes.errors.length;
     res.status(200).json({

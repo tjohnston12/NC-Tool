@@ -93,6 +93,11 @@ async function resolveRecipients(rows) {
   return [...byLower.values()];
 }
 
+// The NC front-end now lives at www.mrdc-htra.com/nc/ while this API stays on
+// nc.mrdc-htra.com, so links in outbound email must NOT be derived from the
+// request host — that would send people back to the old address.
+const APP_URL = process.env.NC_APP_URL || 'https://www.mrdc-htra.com/nc';
+
 function buildHtml(rows, appUrl) {
   const t = today();
   const overdue = rows.filter(r => r['Due Date'] && r['Due Date'] < t);
@@ -149,8 +154,7 @@ module.exports = async (req, res) => {
 
   try {
     const rows = await openNCs();
-    const host = req.headers['x-forwarded-host'] || req.headers.host;
-    const appUrl = host ? `https://${host}` : '';
+    const appUrl = APP_URL;
     const html = buildHtml(rows, appUrl);
 
     if (preview) { res.setHeader('Content-Type', 'text/html; charset=utf-8'); res.status(200).send(html); return; }

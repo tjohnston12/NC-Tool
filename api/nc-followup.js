@@ -105,6 +105,11 @@ async function sendMail(to, subject, htmlBody) {
   return r.ok;
 }
 
+// The NC front-end now lives at www.mrdc-htra.com/nc/ while this API stays on
+// nc.mrdc-htra.com, so links in outbound email must NOT be derived from the
+// request host — that would send people back to the old address.
+const APP_URL = process.env.NC_APP_URL || 'https://www.mrdc-htra.com/nc';
+
 function emailHtml(nc, appUrl) {
   const due = addBusinessDays(nc['Date Raised'], 5);
   const link = appUrl ? `${appUrl}/?nc=${encodeURIComponent(nc['NC #'])}` : '';
@@ -130,8 +135,7 @@ module.exports = async (req, res) => {
 
   try {
     const list = await candidates();
-    const host = req.headers['x-forwarded-host'] || req.headers.host;
-    const appUrl = host ? `https://${host}` : '';
+    const appUrl = APP_URL;
 
     if (preview) {
       res.status(200).json({

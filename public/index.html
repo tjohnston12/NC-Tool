@@ -491,7 +491,7 @@ function renderAssetInfo(){
   if (!a) { box.innerHTML = `<span style="color:var(--amber)">Not found in the asset register — check the ID.</span>`; return; }
   const loc = [a.route ? `Route ${esc(a.route)}` : '', (a.km != null && a.km !== '') ? `km ${esc(a.km)}` : ''].filter(Boolean).join(' ');
   const bits = [a.asset_ref ? `No. ${esc(a.asset_ref)}` : '', a.name ? esc(a.name) : '(unnamed)', a.category ? esc(a.category) : '', loc].filter(Boolean).join(' · ');
-  const link = `https://assets.mrdc-htra.com/?id=${encodeURIComponent(id)}`;
+  const link = `https://www.mrdc-htra.com/assets/?id=${encodeURIComponent(id)}`;
   box.innerHTML = `<span class="muted">${bits}</span> — <a href="${link}" target="_blank" rel="noopener" style="font-weight:600">Open asset ↗</a>`;
 }
 // Multiple assets per NC. Stored in the single "Asset ID" text field as a
@@ -514,7 +514,7 @@ function renderAssetChips(){
   if (!ASSETS_SEL.length){ box.innerHTML = '<span class="muted small">No asset linked yet — search below to add one or more.</span>'; return; }
   box.innerHTML = ASSETS_SEL.map((id,i) => {
     const known = !!ASSET_BY_ID[id];
-    const link = `https://assets.mrdc-htra.com/?id=${encodeURIComponent(id)}`;
+    const link = `https://www.mrdc-htra.com/assets/?id=${encodeURIComponent(id)}`;
     const warn = known ? '' : ' style="background:#FBEEDB;border-color:#E6CE9B" title="Not found in the asset register — check the ID"';
     return `<span class="chip"${warn}>${assetChipLabel(id)}`+
       ` <a href="${link}" target="_blank" rel="noopener" title="Open asset ↗" style="color:#1E5FBF;text-decoration:none;padding:0 2px;font-weight:700">↗</a>`+

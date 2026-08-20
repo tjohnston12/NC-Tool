@@ -456,6 +456,11 @@ async function sendFollowup({ ncNo, fields, appUrl, actor }) {
   return { ok: recipients.length > 0, recipients };
 }
 
+// The NC front-end now lives at www.mrdc-htra.com/nc/ while this API stays on
+// nc.mrdc-htra.com, so links in outbound email must NOT be derived from the
+// request host — that would send people back to the old address.
+const APP_URL = process.env.NC_APP_URL || 'https://www.mrdc-htra.com/nc';
+
 // CORS: let other MRDC apps (e.g. the Asset 360 page) read this API from the browser.
 const ORIGIN_OK = /^https:\/\/([a-z0-9-]+\.)*mrdc-htra\.com$|^https:\/\/[a-z0-9-]+\.vercel\.app$/i;
 function applyCors(req, res) {
@@ -522,8 +527,7 @@ module.exports = async (req, res) => {
         if (!canWork) { res.status(403).json({ ok: false, error: 'Managers and admins only' }); return; }
         if (!body.id) { res.status(400).json({ ok: false, error: 'id is required' }); return; }
         const cur = await at(`${AT}/${body.id}`);
-        const host = req.headers['x-forwarded-host'] || req.headers.host;
-        const result = await sendFollowup({ ncNo: cur.fields['NC #'] || body.id, fields: cur.fields, appUrl: host ? `https://${host}` : '', actor: userName });
+          const result = await sendFollowup({ ncNo: cur.fields['NC #'] || body.id, fields: cur.fields, appUrl: APP_URL, actor: userName });
         if (result.ok) {
           await appendLog(body.id, cur.fields['Activity Log'], `action-plan follow-up email sent to ${result.recipients.join(', ')}`, userName);
         }
@@ -562,9 +566,8 @@ module.exports = async (req, res) => {
       const stamp = `[${new Date().toISOString().slice(0, 16).replace('T', ' ')} · ${userName || 'unknown'}]`;
       fields['Activity Log'] = `${stamp} NC raised`;
       const j = await at(AT, 'POST', { records: [{ fields }], typecast: true });
-      const host = req.headers['x-forwarded-host'] || req.headers.host;
       try {
-        const sent = await notifyAssignment({ ncNo: fields['NC #'], appUrl: host ? `https://${host}` : '', oldFields: {}, newFields: fields, actor: userName });
+        const sent = await notifyAssignment({ ncNo: fields['NC #'], appUrl: APP_URL, oldFields: {}, newFields: fields, actor: userName });
         const line = emailLogLine(sent || {});
         if (line) await appendLog(j.records[0].id, j.records[0].fields['Activity Log'], line, userName);
       } catch (_) {}
@@ -622,19 +625,18 @@ module.exports = async (req, res) => {
       fields['Activity Log'] = log;
 
       const j = await at(`${AT}/${body.id}`, 'PATCH', { fields, typecast: true });
-      const host = req.headers['x-forwarded-host'] || req.headers.host;
       const ncNo = j.fields['NC #'] || curFields['NC #'] || body.id;
       let curLog = j.fields['Activity Log'];
       // Stamp who was emailed on assignment (responder / reviewer).
       try {
-        const sent = await notifyAssignment({ ncNo, appUrl: host ? `https://${host}` : '', oldFields: curFields, newFields: fields, actor: userName });
+        const sent = await notifyAssignment({ ncNo, appUrl: APP_URL, oldFields: curFields, newFields: fields, actor: userName });
         const line = emailLogLine(sent || {});
         if (line) curLog = await appendLog(body.id, curLog, line, userName);
       } catch (_) {}
       // Provincial-only: alert Troy when the response is newly marked Ready for Review.
       try {
         if ('Status' in fields && fields['Status'] === 'Ready for Review' && curFields['Status'] !== 'Ready for Review' && curFields['Source'] === 'Provincial Audit') {
-          const to = await notifyResponseReady({ ncNo, appUrl: host ? `https://${host}` : '', actor: userName });
+          const to = await notifyResponseReady({ ncNo, appUrl: APP_URL, actor: userName });
           if (to) curLog = await appendLog(body.id, curLog, `notified NC admin <${to}> — response ready, Province letter needed`, userName);
         }
       } catch (_) {}
