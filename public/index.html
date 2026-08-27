@@ -99,6 +99,27 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
 .stage h3{margin:0 0 10px;font-size:13px;color:var(--navy);text-transform:uppercase;letter-spacing:.5px}
 .stage.admin{border-color:#D9C2CE;background:#FBF7F9}
 .stage.respond{border-color:#C9D6E8;background:#F6F9FD}
+/* ── "still to do" ────────────────────────────────────────────────────────
+   Troy, 2026-08-27: "make the response sections to be filled by managers a light
+   shade of pink or red until they are filled so they know what has to be done."
+   ⚠️ Pink already MEANS something here - .stage.admin is the mauve-pink of "MRDC
+   admin, internal use only". So this is a warmer red, carries a red left rail, and
+   states itself in words with a To do chip: the colour is a hint, the chip is the
+   message. It also survives being printed in greyscale or read by someone who does
+   not separate those two pinks. */
+.stage.todo{border-color:#F0C9C9;background:#FFF4F4;border-left:4px solid #C0504D}
+.stage.todo.respond{background:#FFF4F4}
+.stage.todo>h3::after{content:'To do';margin-left:10px;background:#C0504D;color:#fff;
+  border-radius:99px;padding:1px 9px;font-size:10.5px;font-weight:700;letter-spacing:.4px;
+  text-transform:uppercase;vertical-align:middle}
+.stage.done>h3::after{content:'\2713';margin-left:10px;color:#1BAF7A;font-weight:700}
+.todo-note{font-size:12px;color:#8E2626;margin:-4px 0 10px}
+/* the attach control on the source section */
+.srcbox{border:1px dashed var(--line);border-radius:9px;padding:10px 12px;margin-top:10px;background:#fbfcfe}
+.srcbox .f{margin-bottom:6px}
+.srcfiles{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px}
+.srcfiles a{font-size:12.5px}
+.srcbox .none{color:#8E2626;font-size:12.5px}
 .respond-meta{font-size:12.5px;color:var(--muted);margin-bottom:12px}
 .prio{display:inline-block;font-size:11px;font-weight:700;padding:1px 9px;border-radius:20px}
 .prio-Urgent{background:#FBE9E9;color:var(--bad)} .prio-Important{background:#FDF0DD;color:var(--amber)} .prio-Medium{background:#FDF6DD;color:#8A6A00} .prio-Low{background:#EEF0F4;color:#667}
@@ -214,6 +235,16 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
   <div class="cbody">
     <dl id="d-facts"></dl>
 
+    <!-- The mail poller files a record whenever the province NAMES a notice, even when
+         it did not attach the PDF. This is where that PDF gets added afterwards without
+         opening Airtable. -->
+    <div class="srcbox" id="d-srcbox">
+      <label class="f">Source files — the notice, audit report or evidence this NC came from</label>
+      <div class="srcfiles" id="d-srcfiles"></div>
+      <label class="photo-btn" id="d-src-label"><input type="file" id="d-src-file" accept="image/*,application/pdf" multiple hidden> + Attach source file</label>
+      <span class="small muted" id="d-src-status" style="margin-left:8px"></span>
+    </div>
+
     <div class="stage"><h3>Non-conformance details</h3>
       <div class="fieldrow"><label class="f">Assets <span style="text-transform:none;font-weight:400;color:var(--muted)">— the asset(s) this NC concerns; add more than one if it spans several. Type is pre-filtered from the OMM standard</span></label>
         <div class="chipbox" id="d-assets-box" style="margin-bottom:6px"><span id="d-assets-chips"></span></div>
@@ -269,11 +300,11 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
       </div>
     </div>
 
-    <div class="stage"><h3>Containment — immediate action</h3>
+    <div class="stage" id="d-containbox"><h3>Containment — immediate action</h3>
       <div class="fieldrow"><textarea id="d-contain" placeholder="What was done right away to contain the problem…"></textarea></div></div>
-    <div class="stage"><h3>Root cause</h3>
+    <div class="stage" id="d-rootbox"><h3>Root cause</h3>
       <div class="fieldrow"><textarea id="d-root" placeholder="Root cause analysis — 5-why, fishbone…"></textarea></div></div>
-    <div class="stage"><h3>Corrective &amp; preventive action</h3>
+    <div class="stage" id="d-correctbox"><h3>Corrective &amp; preventive action</h3>
       <div class="fieldrow"><label class="f">Corrective action (eliminates the root cause)</label><textarea id="d-corrective"></textarea></div>
       <div class="fieldrow"><label class="f">Preventive action (optional — stops recurrence elsewhere)</label><textarea id="d-preventive"></textarea></div>
       <div class="fieldrow" style="max-width:230px"><label class="f">Date action completed</label><input type="date" id="d-done"></div></div>
@@ -388,6 +419,10 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
     <dl id="ar-facts"></dl>
     <label class="f" style="margin-top:12px">Attachments</label>
     <div id="ar-files"></div>
+    <div class="srcbox" id="ar-attachbox">
+      <label class="photo-btn" id="ar-upload-label"><input type="file" id="ar-file" accept="image/*,application/pdf" multiple hidden> + Attach report file</label>
+      <span class="small muted" id="ar-status" style="margin-left:8px"></span>
+    </div>
   </div>
 </div></div>
 
@@ -882,6 +917,8 @@ function openNC(id){
   setV('#d-verby', n['Verified By']); setV('#d-verdate', n['Date Verified']);
   setV('#d-vernotes', n['Verification Notes']); setV('#d-closed', n['Date Closed']);
   $('#d-log').textContent = n['Activity Log'] || '—';
+  renderSrcFiles();
+  $('#d-src-status').textContent = '';
   // gate the controls
   const editable = CAN_WORK;
   document.querySelectorAll('#dv select, #dv textarea, #dv input:not(#d-comment)').forEach(el => el.disabled = !editable);
@@ -944,6 +981,9 @@ function openNC(id){
   renderClosureScan();
   $('#d-closure-upload-label').style.display = IS_ADMIN ? '' : 'none';
   $('#d-closure-save').style.display = IS_ADMIN ? '' : 'none';
+  // Last, deliberately: markTodo() reads RESP_FILES, PLAN and the live inputs, all of
+  // which are only set above. Calling it earlier would judge an empty form.
+  markTodo();
   $('#dv').classList.add('on');
 }
 
@@ -1027,6 +1067,105 @@ async function addNewFiles(files){
   }
   st.textContent = NEW_FILES.length + ' file(s) ready';
   lbl.classList.remove('disabled');
+}
+
+// ── Source files on an existing record ────────────────────────────────────
+// ⚠️ Airtable REPLACES an attachment field on write, so "add a file" has to send the
+// whole list. The existing ones are re-sent by url, which Airtable keeps rather than
+// re-fetching. Sending only the new file would silently delete everything already there.
+function renderSrcFiles(){
+  const box = $('#d-srcfiles'); if(!box) return;
+  const files = Array.isArray(CUR && CUR['Files']) ? CUR['Files'] : [];
+  box.innerHTML = files.length
+    ? files.map(f => `<a href="${esc(f.url)}" target="_blank" rel="noopener">📄 ${esc(f.filename||'file')}</a>`).join('')
+    : `<span class="none">No source file attached — the notice was filed from an email that did not carry one.</span>`;
+}
+async function attachSourceFiles(input){
+  const picked = [...(input.files||[])]; if(!picked.length || !CUR) return;
+  const st = $('#d-src-status');
+  try{
+    st.textContent = `Uploading ${picked.length} file(s)…`;
+    const added = [];
+    for(const f of picked){ added.push({ url: await uploadAuditFile(f), filename: f.name }); }
+    const had = Array.isArray(CUR['Files']) ? CUR['Files'].map(f => ({ url:f.url, filename:f.filename })) : [];
+    const r = await fetch(API, { method:'PATCH', headers: authHeaders(),
+      body: JSON.stringify({ id: CUR.id, fields: { 'Files': [...had, ...added] } }) });
+    const j = await r.json().catch(()=>({}));
+    if(!r.ok || j.ok === false) throw new Error(j.error || `Save failed (${r.status})`);
+    // Re-read from what was STORED. Airtable silently drops an attachment it cannot
+    // fetch (the Cloudinary PDF-delivery trap), so trusting the local list would show
+    // a file that is not there.
+    if(j.record){ CUR = Object.assign(CUR, j.record); const i = ALL.findIndex(x=>x.id===CUR.id); if(i>=0) ALL[i] = CUR; }
+    renderSrcFiles(); markTodo();
+    const now = Array.isArray(CUR['Files']) ? CUR['Files'].length : 0;
+    if(now < had.length + added.length){
+      st.innerHTML = `<span style="color:#8E2626">Airtable did not keep every file — check that Cloudinary still has PDF delivery enabled.</span>`;
+    } else { st.textContent = `${added.length} file(s) attached`; toast('Source file attached'); }
+  }catch(e){ st.innerHTML = `<span style="color:#8E2626">${esc(e.message)}</span>`; }
+  input.value = '';
+}
+
+// ── Source files on an AUDIT REPORT row ───────────────────────────────────
+let AUDIT_CUR = null;
+async function attachAuditFiles(input){
+  const picked = [...(input.files||[])]; if(!picked.length || !AUDIT_CUR) return;
+  const st = $('#ar-status');
+  try{
+    st.textContent = `Uploading ${picked.length} file(s)…`;
+    const added = [];
+    for(const f of picked){ added.push({ url: await uploadAuditFile(f), filename: f.name }); }
+    // The merge happens SERVER-side for audits - the client never holds the whole
+    // attachment list for that table, so sending it would risk clearing what it did
+    // not know about.
+    const r = await fetch(API, { method:'PATCH', headers: authHeaders(),
+      body: JSON.stringify({ audit: AUDIT_CUR.id, fields: { 'Files': added } }) });
+    const j = await r.json().catch(()=>({}));
+    if(!r.ok || j.ok === false) throw new Error(j.error || `Save failed (${r.status})`);
+    if(j.record){
+      AUDIT_CUR = j.record;
+      const i = (AUDIT_ROWS||[]).findIndex(x=>x.id===AUDIT_CUR.id); if(i>=0) AUDIT_ROWS[i] = AUDIT_CUR;
+    }
+    openAudit(AUDIT_CUR.id); renderAudits();
+    $('#ar-status').textContent = `${added.length} file(s) attached`;
+    toast('Attached to the audit report');
+  }catch(e){ st.innerHTML = `<span style="color:#8E2626">${esc(e.message)}</span>`; }
+  input.value = '';
+}
+
+// ── What is still to do ───────────────────────────────────────────────────
+// A section is "to do" while the thing it exists to capture is still empty. Read from
+// the LIVE inputs, not from the record, so the tint clears as the manager types rather
+// than only after a save - the point is to show what is outstanding, and a section that
+// stays red while you are filling it in is just noise.
+//
+// Nothing is marked to do on a Closed or Cancelled NC: the work is over, and a wall of
+// red on a closed record teaches people to ignore the colour.
+const TODO_SECTIONS = [
+  { box:'#d-respondbox',  filled: () => (RESP_FILES && RESP_FILES.length > 0) ||
+      [...document.querySelectorAll('#d-checklist input[type=checkbox]')].some(c => c.checked) },
+  // A plan with an empty step row is not a plan - checking for the ROW would clear the
+  // tint the moment someone clicked "add step" and walked away.
+  { box:'#d-planbox',     filled: () => Array.isArray(PLAN) && PLAN.some(x => String(x && x.step || '').trim()) },
+  { box:'#d-containbox',  filled: () => !!($('#d-contain')||{}).value?.trim() },
+  { box:'#d-rootbox',     filled: () => !!($('#d-root')||{}).value?.trim() },
+  { box:'#d-correctbox',  filled: () => !!($('#d-corrective')||{}).value?.trim() },
+];
+const TODO_DONE_STATUSES = ['Closed', 'Cancelled'];
+function markTodo(){
+  const over = CUR && TODO_DONE_STATUSES.includes(String(CUR.Status||''));
+  for(const sec of TODO_SECTIONS){
+    const el = document.querySelector(sec.box); if(!el) continue;
+    let done = false;
+    try { done = !!sec.filled(); } catch(_) { done = true; }   // never tint on a bug
+    el.classList.toggle('todo', !over && !done);
+    el.classList.toggle('done', !over && done);
+  }
+  const src = $('#d-srcbox');
+  if(src){
+    const has = Array.isArray(CUR && CUR['Files']) && CUR['Files'].length > 0;
+    src.style.borderColor = has ? '' : '#F0C9C9';
+    src.style.background  = has ? '' : '#FFF4F4';
+  }
 }
 
 async function uploadAuditFile(file){
@@ -1192,6 +1331,8 @@ function renderAudits(){
 // Open one audit report — its details plus every attachment (opens the file in a new tab).
 function openAudit(id){
   const a=(AUDIT_ROWS||[]).find(x=>x.id===id); if(!a) return;
+  AUDIT_CUR = a;
+  if($('#ar-status')) $('#ar-status').textContent = '';
   $('#ar-title').textContent = a['Report #'] || 'Audit report';
   $('#ar-sub').textContent = [a.Source, a.Date].filter(Boolean).join(' · ');
   $('#ar-facts').innerHTML = [
@@ -1466,6 +1607,23 @@ $('#d-letter-sent').onclick = async () => {
 $('#d-plan-add').onclick = () => { PLAN.push({ step:'', due:'', done:false }); renderPlan(); };
 $('#d-plan-save').onclick = savePlan;
 $('#d-plan-followup').onclick = sendFollowupEmail;
+// The two attach buttons this change adds.
+$('#d-src-file').addEventListener('change', e => attachSourceFiles(e.target));
+$('#ar-file').addEventListener('change', e => attachAuditFiles(e.target));
+
+// Keep the "to do" tint honest as the manager works, not only after a save. `input`
+// covers typing, `change` covers checkboxes and dates - a section that stayed red while
+// you were filling it in would train people to ignore the colour.
+['#d-contain','#d-root','#d-corrective','#d-preventive'].forEach(id => {
+  const el = $(id); if (el) el.addEventListener('input', markTodo);
+});
+document.addEventListener('change', e => {
+  if (e.target.closest && e.target.closest('#d-checklist, #d-plan-steps, #d-respondbox')) markTodo();
+});
+document.addEventListener('input', e => {
+  if (e.target.closest && e.target.closest('#d-plan-steps')) markTodo();
+});
+
 $('#d-respond-file').addEventListener('change', async e => {
   if(!CUR) return; const files = [...e.target.files]; e.target.value = '';
   for(const file of files){
