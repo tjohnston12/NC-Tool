@@ -595,6 +595,31 @@ function renderReviewerAdd(){
 }
 function getReviewers(){ return REVIEWERS_SEL.join('; '); }
 // The provincial audit report PDF for this NC — from native Files or the SharePoint links.
+// ── The provincial instrument's own number ────────────────────────────────
+// Troy, 2026-08-27: "you list the Source as Provincial Audit and then the reference,
+// can you also automatically include the OMNCN number or DEF number if it is one of
+// those two."
+//
+// Externally issued NCs KEEP the province's own number, so `NC #` already holds it —
+// OMNCN1131 for a notice, OMDEF0349 for a defect notice. What the Source line was
+// missing is that the number IS the instrument: "Provincial Audit · OWFFM0071" says
+// which audit, never which notice came out of it.
+//
+// Only for the two external types. An Internal NC's number (NC-2025-17, 2026-NC-12) is
+// ours, not an instrument the province issued, and labelling it here would imply a
+// provincial notice that does not exist.
+const NOTICE_LABEL = { 'NCN': 'NCN', 'Defect Notice': 'DEF' };
+function noticeRef(n){
+  const label = NOTICE_LABEL[String(n && n['Notice Type'] || '').trim()];
+  const num = String(n && n['NC #'] || '').trim();
+  if (!label || !num) return '';
+  // Do not stutter. Provincial numbers carry the instrument in the MIDDLE
+  // (OMNCN1131, OMDEF0349) so the prefix adds something; internally raised ones lead
+  // with it (DEF-2018-01), where "DEF DEF-2018-01" just reads as a typo.
+  const bare = num.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return bare.startsWith(label) ? num : `${label} ${num}`;
+}
+
 function noticePdf(n){
   const nc = String(n['NC #'] || '');
   const isPdf = s => /\.pdf(\?|$)/i.test(String(s || ''));
@@ -903,7 +928,7 @@ function openNC(id){
     ${_np ? `<dt>Audit report</dt><dd><a href="${linkUrl(_np.url)}" target="_blank" rel="noopener" style="font-weight:700">📄 Open Audit Report (PDF)</a></dd>` : ''}
     ${Array.isArray(n['Closure Notice']) && n['Closure Notice'].length ? `<dt>Closure notice</dt><dd>${n['Closure Notice'].map(f=>`<a href="${esc(f.url)}" target="_blank" rel="noopener" style="font-weight:700">📄 ${esc(f.filename||'Closure notice (PDF)')}</a>`).join(' · ')}</dd>` : ''}
     <dt>Date Issued</dt><dd>${esc(n['Date Raised']||'—')}</dd>
-    <dt>Source</dt><dd>${esc(n.Source||'—')}${n['Source Reference']?` · ${esc(n['Source Reference'])}`:''}</dd>
+    <dt>Source</dt><dd>${esc(n.Source||'—')}${noticeRef(n)?` · <b>${esc(noticeRef(n))}</b>`:''}${n['Source Reference']?` · ${esc(n['Source Reference'])}`:''}</dd>
     ${Array.isArray(n['Files']) && n['Files'].length ? `<dt>Files</dt><dd>${n['Files'].map(f=>`<a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(f.filename||'file')}</a>`).join(' · ')}</dd>` : ''}
     ${n['Attachment URLs'] ? `<dt>Links</dt><dd>${String(n['Attachment URLs']).split(/\n+/).filter(Boolean).map((u,i)=>`<a href="${linkUrl(u)}" target="_blank" rel="noopener">file ${i+1}</a>`).join(' · ')}</dd>` : ''}`;
   $('#d-asset').value=''; initAssets(n['Asset ID']); setAssetTypeFromStandard(n['Standard / Clause']); renderAssetInfo();
