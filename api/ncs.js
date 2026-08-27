@@ -577,6 +577,39 @@ module.exports = async (req, res) => {
 
     if (req.method === 'PATCH') {
       const body = typeof req.body === 'object' && req.body ? req.body : JSON.parse(req.body || '{}');
+
+      // ── Attaching a file to an AUDIT REPORT row ────────────────────────────
+      // Troy, 2026-08-27: "when new emails are added the list of NCNs or DEFs or
+      // audits, the files are not attached, can you add a button so i can attach them
+      // to the source section."
+      //
+      // The mail poller files a record whenever the province NAMES a notice or audit,
+      // even when it did not attach the PDF - the runbook calls that out as expected
+      // rather than an error ("the record is filed; drag the PDF in when it arrives").
+      // Until now "drag it in" meant opening Airtable. The NC table already accepted
+      // `Files` from a manager; the Audit Reports table had no write path at all.
+      //
+      // ⚠️ Deliberately narrow: `Files` only, on a record that must already exist.
+      // Nothing else in this table is editable from the app, so a malformed payload
+      // cannot rewrite an audit's result, division or report number.
+      if (body.audit) {
+        if (!canWork) { res.status(403).json({ ok: false, error: 'Only managers or admins can attach files to an audit report.' }); return; }
+        const incoming = body.fields || {};
+        const bad = Object.keys(incoming).filter(k => k !== 'Files');
+        if (bad.length) { res.status(400).json({ ok: false, error: 'Only Files can be written on an audit report.', rejected: bad }); return; }
+        if (!Array.isArray(incoming.Files)) { res.status(400).json({ ok: false, error: 'Files must be an array of {url, filename}.' }); return; }
+        const before = await at(`${AT_AUDIT}/${body.audit}`);
+        const had = Array.isArray((before.fields || {}).Files) ? before.fields.Files : [];
+        // Airtable REPLACES an attachment field, so an append has to be sent as the
+        // whole list. Existing attachments are re-sent by url, which Airtable keeps.
+        const merged = [...had.map(f => ({ url: f.url, filename: f.filename })), ...incoming.Files];
+        const out = await at(`${AT_AUDIT}/${body.audit}`, {
+          method: 'PATCH', body: JSON.stringify({ fields: { Files: merged }, typecast: true }),
+        });
+        res.status(200).json({ ok: true, record: { id: out.id, ...out.fields }, added: incoming.Files.length });
+        return;
+      }
+
       if (!body.id) { res.status(400).json({ ok: false, error: 'id is required' }); return; }
       // Fetch the record up front so we can check responder identity.
       const curRec = await at(`${AT}/${body.id}`);
