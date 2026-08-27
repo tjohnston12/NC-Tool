@@ -479,12 +479,22 @@ async function loadAssets(){
     if (Array.isArray(j)) { ASSETS = j; ASSET_BY_ID = {}; j.forEach(a => { ASSET_BY_ID[String(a.id)] = a; }); populateAssetTypes(); buildAssetList(); }
   } catch(_){}
 }
-// Fill the asset-type filter with the distinct categories present in the register.
+// Not an asset type - the thing an NC is written against when it is NOT an asset.
+// Troy, 2026-08-27: NCNs like OMNCN1122/1123 are "agreement type, not written against
+// an asset per say" - they cite Article 7.4 and Change Request 139, so there is nothing
+// in the asset register to point at. More of these (DDB Agreement, the OMM Schedules,
+// construction and technical specs) are coming; this is the first.
+const NON_ASSET_TYPES = ['Agreement'];
+
+// Fill the asset-type filter with the distinct categories present in the register,
+// plus the non-asset choices above.
 function populateAssetTypes(){
   const sel = $('#d-asset-type'); if (!sel) return;
   const cats = [...new Set(ASSETS.map(a => a.category).filter(Boolean))].sort();
   const cur = sel.value;
-  sel.innerHTML = '<option value="">All types</option>' + cats.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
+  sel.innerHTML = '<option value="">All types</option>'
+    + cats.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('')
+    + NON_ASSET_TYPES.map(c => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
   sel.value = cur;
 }
 // Map an OMM standard (from the NC) to the asset type(s) its audit concerns.
@@ -514,6 +524,14 @@ function setAssetTypeFromStandard(std){
 function buildAssetList(){
   const dl = $('#asset-list'); if (!dl) return;
   const t = $('#d-asset-type') ? $('#d-asset-type').value : '';
+  // A non-asset choice has nothing to search. Say so, rather than leaving a search box
+  // that silently returns nothing and reads as broken.
+  if (NON_ASSET_TYPES.includes(t)) {
+    dl.innerHTML = '';
+    const box = $('#d-asset-info');
+    if (box) box.innerHTML = `<span class="muted">Written against an ${esc(t.toLowerCase())} rather than an asset &mdash; name it in <b>Standard / clause</b> below (e.g. &ldquo;OMM Article 7.4 &amp; Change Request 139&rdquo;).</span>`;
+    return;
+  }
   const list = t ? ASSETS.filter(a => a.category === t) : ASSETS;
   dl.innerHTML = list.map(a => `<option value="${esc(a.id)}" label="${esc([a.asset_ref, a.name, a.category].filter(Boolean).join(' · '))}">`).join('');
 }
