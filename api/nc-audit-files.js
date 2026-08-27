@@ -88,9 +88,14 @@ async function missingAuditFiles(opts = {}) {
   const recentDays = Number(opts.days) > 0 ? Number(opts.days) : RECENT_DAYS;
   const cutoff = daysAgo(recentDays);
 
-  const audits = (await page(AT_AUD, ['Report #', 'Date', 'Source', 'Division', 'Standard', 'Result']))
+  // ⚠️ `Files` MUST be in these lists. Airtable returns ONLY the fields you name, so
+  // omitting it made every single row read as "no file" — the first live run listed 512
+  // audit reports and 72 notices, i.e. the whole table. The bug is invisible in a stub
+  // that hands back a fixture regardless of fields[], which is exactly why the test
+  // below now honours the parameter the way the real API does.
+  const audits = (await page(AT_AUD, ['Report #', 'Date', 'Source', 'Division', 'Standard', 'Result', 'Files']))
     .filter(noFile);
-  const ncs = (await page(AT_NC, ['NC #', 'Notice Type', 'Date Raised', 'Source', 'Status']))
+  const ncs = (await page(AT_NC, ['NC #', 'Notice Type', 'Date Raised', 'Source', 'Status', 'Files']))
     .filter(noFile)
     .filter(r => ['NCN', 'Defect Notice'].includes(String(r['Notice Type'] || '').trim()));
 
