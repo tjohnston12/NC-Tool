@@ -11,6 +11,9 @@
  * Subscriptions (managed in the access & roles app), plus any extra addresses in
  * NC_DIGEST_TO. Deduped by address.
  *
+ * Also runs the missing-audit-file reminder (api/nc-audit-files.js) at the end of the
+ * same Monday job, so it needs no cron of its own — see the note further down.
+ *
  * Env: AIRTABLE_PAT, NC_BASE_ID, RESEND_API_KEY (required to send).
  * Optional: RESEND_FROM, NC_DIGEST_TO, CRON_SECRET, EMPLOYEES_BASE, EMPLOYEES_TABLE.
  */
@@ -174,7 +177,25 @@ module.exports = async (req, res) => {
       });
       sent = r.ok;
     }
-    res.status(200).json({ ok: true, open: rows.length, recipients: recipients.length, sent });
+    // ── The missing-audit-file reminder rides this Monday run ─────────────
+    // vercel.json already carries three crons and the go-live runbook records that the
+    // Hobby plan allows two, so a fourth would risk failing the whole deploy. This job
+    // already fires Monday 11:00 UTC, which is the slot the reminder wanted. Same
+    // pattern as nc-intake exporting its importers for nc-mail-intake.
+    //
+    // ⚠️ It sends its OWN email to the NC admin only - the digest above goes to
+    // everyone holding an open NC, and "chase the missing PDFs" is not their job.
+    // Wrapped so a failure here can never cost the digest: the digest is the thing
+    // people are waiting for.
+    let auditFiles = null;
+    try {
+      const reminder = require('./nc-audit-files.js');
+      auditFiles = await reminder.sendReminder();
+    } catch (e) {
+      auditFiles = { ok: false, error: e.message };
+    }
+
+    res.status(200).json({ ok: true, open: rows.length, recipients: recipients.length, sent, auditFiles });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }
