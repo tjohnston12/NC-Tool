@@ -61,6 +61,9 @@ const MANAGER_FIELDS = new Set([
   'Attachment URLs', 'Status',
   'Priority', 'Reviewers', 'Response Checklist', 'Response Files',
   'Action Plan', 'Action Plan Started', 'Asset ID', 'Notice Type',
+  // What the NC is written against when it is not an asset (e.g. 'Agreement').
+  // Without this the type picker saves nothing and reads back as 'All types'.
+  'Written Against',
   // The audit evidence itself — the report, notice, photos or worksheets the NC
   // was raised from. Attachable when the NC is issued (and afterwards), so the
   // paperwork lands with the NC instead of being chased later. This is the same
@@ -93,7 +96,7 @@ const AUDIT_VALUE_FIELDS = new Set([
   'Status', 'Priority', 'Responsible Person', 'Division', 'Classification', 'Reviewers',
   'Due Date', 'Date Raised', 'Raised By', 'Date Action Completed', 'Date Verified',
   'Date Closed', 'Verified By', 'Letter Date Sent', 'Action Plan Started',
-  'Source', 'Source Reference', 'Standard / Clause', 'Asset ID',
+  'Source', 'Source Reference', 'Standard / Clause', 'Asset ID', 'Written Against',
 ]);
 // Attachment fields — record uploads/removals by filename (Response Files is a
 // newline URL list and is handled alongside these).
