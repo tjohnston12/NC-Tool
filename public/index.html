@@ -85,6 +85,15 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
 .fieldrow{margin-bottom:12px}
 .fieldrow input,.fieldrow select,.fieldrow textarea{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-size:13.5px;background:#fff;font-family:inherit}
 .fieldrow textarea{min-height:64px;resize:vertical}
+.clause-wrap{position:relative}
+.clause-drop{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:40;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px rgba(30,43,94,.14);max-height:280px;overflow:auto}
+.clause-item{padding:8px 10px;cursor:pointer;border-bottom:1px solid var(--line)}
+.clause-item:last-child{border-bottom:none}
+.clause-item:hover,.clause-item.hi{background:#F4F5F8}
+.clause-item b{font-size:13px;color:var(--navy)}
+.clause-item .csrc{display:inline-block;margin-left:6px;font-size:10px;text-transform:uppercase;letter-spacing:.3px;font-weight:700;color:var(--wine);background:#FBF7F9;border:1px solid #D9C2CE;border-radius:4px;padding:1px 5px}
+.clause-item .csnip{display:block;font-size:12px;color:var(--muted);margin-top:2px;line-height:1.4}
+.clause-empty{padding:10px;font-size:12px;color:var(--muted)}
 .chipbox{display:flex;flex-wrap:wrap;gap:6px;align-items:center;width:100%;min-height:38px;padding:5px 8px;border:1px solid var(--line);border-radius:8px;background:#fff}
 .chip{display:inline-flex;align-items:center;gap:5px;background:#eef2fb;color:#1E2B5E;border:1px solid #d7e0f2;border-radius:14px;padding:2px 4px 2px 10px;font-size:13px;line-height:1.6}
 .chip button{border:none;background:transparent;color:#5a6b93;cursor:pointer;font-size:15px;line-height:1;padding:0 3px;border-radius:10px}
@@ -368,7 +377,7 @@ label.f{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.4p
       <div class="fieldrow"><label class="f">Due date <span style="text-transform:none;font-weight:400;color:var(--muted)">— leave blank for 10 working days from raised</span></label><input type="date" id="n-due"></div>
     </div>
     <div class="grid2">
-      <div class="fieldrow"><label class="f">Standard / clause violated</label><input id="n-clause" type="text" placeholder="ISO 9001 8.5.1 · OMM 706 · contract §4.2…"></div>
+      <div class="fieldrow clause-wrap"><label class="f">Standard / clause violated <span style="text-transform:none;font-weight:400;color:var(--muted)">— search a clause number or keyword to fill Requirement automatically</span></label><input id="n-clause" type="text" autocomplete="off" placeholder="Search e.g. 261, rumble strips, shouldering… or type your own"><div id="n-clause-drop" class="clause-drop" style="display:none"></div></div>
       <div class="fieldrow"><label class="f">Responsible person</label><select id="n-resp"></select></div>
     </div>
     <div class="fieldrow"><label class="f">Requirement (what the standard requires)</label><textarea id="n-req"></textarea></div>
@@ -1248,8 +1257,61 @@ async function uploadAuditFile(file){
   return j.secure_url;
 }
 
+// ── Clause search: search the bundled clause library (built from the DDB/NBDOT
+// Standard Specifications, OMM Schedule 1 Part 5 Construction Specifications, and
+// the NBDTI 2023 ERS Item 261) and fill Requirement from whichever clause is picked.
+// The SAME clause number can validly mean different text depending on the source
+// document/era (Item 261 is the clearest example — OMM's own 1997/2014 spec vs the
+// 2023 provincial ERS spec are different documents with different numbering) so every
+// result is labeled by source and the label is preserved in what gets saved.
+let CLAUSE_LIB = null, CLAUSE_LOADING = null;
+function loadClauseLib(){
+  if (CLAUSE_LIB) return Promise.resolve(CLAUSE_LIB);
+  if (CLAUSE_LOADING) return CLAUSE_LOADING;
+  CLAUSE_LOADING = fetch('/clause-library.json').then(r => r.ok ? r.json() : []).then(j => {
+    CLAUSE_LIB = Array.isArray(j) ? j : []; return CLAUSE_LIB;
+  }).catch(() => { CLAUSE_LIB = []; return CLAUSE_LIB; });
+  return CLAUSE_LOADING;
+}
+function clauseLabel(e){ return `Item ${e.number} — ${e.sourceShort}`; }
+function searchClauses(q){
+  if (!CLAUSE_LIB || !q || q.length < 2) return [];
+  const ql = q.trim().toLowerCase();
+  const isNumeric = /^[0-9]/.test(ql);
+  let results;
+  if (isNumeric) {
+    results = CLAUSE_LIB.filter(e => e.number.toLowerCase().startsWith(ql));
+    if (results.length < 8) {
+      const kw = CLAUSE_LIB.filter(e => !results.includes(e) &&
+        ((e.title||'').toLowerCase().includes(ql) || (e.requirement||'').toLowerCase().includes(ql)));
+      results = results.concat(kw);
+    }
+    results.sort((a,b) => a.number.length - b.number.length || a.number.localeCompare(b.number));
+  } else {
+    results = CLAUSE_LIB.filter(e => (e.title||'').toLowerCase().includes(ql) || (e.requirement||'').toLowerCase().includes(ql));
+    results.sort((a,b) => (a.title||'').toLowerCase().includes(ql) ? -1 : 1);
+  }
+  return results.slice(0, 25);
+}
+function renderClauseDrop(results){
+  const box = $('#n-clause-drop');
+  if (!results.length) { box.innerHTML = '<div class="clause-empty">No matching clause on file — type your own citation, it will be saved as entered.</div>'; box.style.display=''; return; }
+  box.innerHTML = results.map((e,i) => `<div class="clause-item" data-i="${i}">
+      <b>Item ${esc(e.number)}</b><span class="csrc">${esc(e.sourceShort)}</span>${e.title ? ` — ${esc(e.title)}` : ''}
+      <span class="csnip">${esc((e.requirement||'').slice(0,140))}${(e.requirement||'').length>140?'…':''}</span>
+    </div>`).join('');
+  box._results = results;
+  box.style.display = '';
+}
+function hideClauseDrop(){ const box=$('#n-clause-drop'); box.style.display='none'; box.innerHTML=''; box._results=null; }
+function pickClause(e){
+  $('#n-clause').value = clauseLabel(e);
+  $('#n-req').value = e.requirement || '';
+  hideClauseDrop();
+}
 function openNew(){
   ['#n-ref','#n-ncn','#n-clause','#n-req','#n-desc'].forEach(id=>$(id).value=''); fillRespSelect($('#n-resp'), '');
+  loadClauseLib();
   $('#n-date').value = today(); $('#n-due').value=''; $('#n-division').value='';
   $('#n-source').value='Quality Audit'; $('#n-class').value='Minor';
   NEW_FILES = []; $('#n-files-status').textContent=''; $('#n-files-input').value=''; renderNewFiles();
@@ -1616,6 +1678,29 @@ $('#d-x').onclick = $('#d-cancel').onclick = () => $('#dv').classList.remove('on
 $('#n-x').onclick = $('#n-cancel').onclick = () => $('#nv').classList.remove('on');
 $('#n-files-input').addEventListener('change', e => { addNewFiles(e.target.files); e.target.value=''; });
 $('#n-save').onclick = submitNew;   // Raise NC
+// Clause search — filters the bundled clause library as the user types; picking a
+// result fills Requirement and rewrites the field to a source-labeled citation.
+$('#n-clause').addEventListener('input', async () => {
+  const q = $('#n-clause').value;
+  await loadClauseLib();
+  const results = searchClauses(q);
+  if (!q || q.trim().length < 2) { hideClauseDrop(); return; }
+  renderClauseDrop(results);
+});
+$('#n-clause').addEventListener('focus', () => {
+  const q = $('#n-clause').value;
+  if (q && q.trim().length >= 2 && CLAUSE_LIB) renderClauseDrop(searchClauses(q));
+});
+$('#n-clause-drop').addEventListener('mousedown', e => {
+  // mousedown (not click) so this fires before the input's blur hides the dropdown
+  const item = e.target.closest('.clause-item[data-i]'); if (!item) return;
+  e.preventDefault();
+  const results = $('#n-clause-drop')._results || [];
+  const entry = results[+item.getAttribute('data-i')];
+  if (entry) pickClause(entry);
+});
+$('#n-clause').addEventListener('blur', () => setTimeout(hideClauseDrop, 150));
+$('#n-clause').addEventListener('keydown', e => { if (e.key === 'Escape') hideClauseDrop(); });
 $('#h-x').onclick = () => $('#hv').classList.remove('on');
 // Audit file (admin only) — open the record's activity log in its own window.
 $('#d-audit').onclick = () => {
