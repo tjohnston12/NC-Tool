@@ -530,7 +530,21 @@ module.exports = async (req, res) => {
         if (!canWork) { res.status(403).json({ ok: false, error: 'Managers and admins only' }); return; }
         if (!body.id) { res.status(400).json({ ok: false, error: 'id is required' }); return; }
         const cur = await at(`${AT}/${body.id}`);
-          const result = await sendFollowup({ ncNo: cur.fields['NC #'] || body.id, fields: cur.fields, appUrl: APP_URL, actor: userName });
+        // An action-plan follow-up on a Closed or Cancelled NC is never right:
+        // the work is finished and the record is done. The weekday cron
+        // (api/nc-followup.js) has always excluded these; this button did not,
+        // so an admin could fire a chaser at a closed NC and it would send.
+        // Found 2026-09-03 while checking the cron. The three workflow statuses
+        // the cron now also skips (Letter Sent / Ready for Review / Verification)
+        // are deliberately still allowed HERE — the cron's mail asserts "no
+        // action plan has been started", while this one reports whichever is
+        // true, so a manager's considered nudge stays available.
+        const curStatus = String(cur.fields['Status'] || '').trim();
+        if (TERMINAL.includes(curStatus)) {
+          res.status(409).json({ ok: false, error: `NC ${cur.fields['NC #'] || body.id} is ${curStatus} — action-plan follow-ups are not sent on a ${curStatus.toLowerCase()} NC.` });
+          return;
+        }
+        const result = await sendFollowup({ ncNo: cur.fields['NC #'] || body.id, fields: cur.fields, appUrl: APP_URL, actor: userName });
         if (result.ok) {
           await appendLog(body.id, cur.fields['Activity Log'], `action-plan follow-up email sent to ${result.recipients.join(', ')}`, userName);
         }

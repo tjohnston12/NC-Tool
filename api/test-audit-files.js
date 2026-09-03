@@ -21,8 +21,21 @@ const NCS = [
   { id:'n5','NC #':'NC-2025-17','Notice Type':'Internal NC','Date Raised':D(3), Status:'New' },       // internal - excluded
   { id:'n6','NC #':'OMNCN0500','Notice Type':'NCN', 'Date Raised':'2016-11-28', Status:'Closed', Files:[{url:'u'}] },  // has file
 ];
-global.fetch = async (url) => ({ ok:true, json: async () => ({
-  records: (/Audit%20Reports/.test(url) ? AUDITS : NCS).map(r => { const {id,...f}=r; return {id, fields:f}; }) }) });
+// ⚠️ The stub HONOURS fields[] exactly as Airtable does: a field you did not ask for
+// is not in the response. The first version of this stub returned every fixture field
+// regardless, which let a real bug through — nc-audit-files.js was not requesting
+// `Files`, so live every row read as "no file" and the first email listed 512 audit
+// reports. A stub more generous than the API it stands in for tests nothing.
+global.fetch = async (url) => {
+  const want = [...new URL('https://x/?' + String(url).split('?')[1]).searchParams.getAll('fields[]')];
+  const src = /Audit%20Reports|Audit Reports/.test(url) ? AUDITS : NCS;
+  return { ok:true, json: async () => ({ records: src.map(r => {
+    const { id, ...f } = r;
+    const kept = {};
+    for (const k of Object.keys(f)) if (!want.length || want.includes(k)) kept[k] = f[k];
+    return { id, fields: kept };
+  }) }) };
+};
 
 const m = require(path.join(__dirname,'nc-audit-files.js'));
 let pass=0, fail=0;
@@ -56,6 +69,14 @@ const ok=(n,c,x)=>{ if(c) pass++; else { fail++; console.log('  FAIL '+n+(x?'  �
   console.log('backlog: audits', d.auditBacklog, '· notices', d.ncBacklog, '· undated', d.auditUndated);
   ok('backlog counted, not listed', d.auditBacklog === 2 && d.ncBacklog === 1, `${d.auditBacklog}/${d.ncBacklog}`);
   ok('undated audits counted', d.auditUndated === 1);
+
+  // The regression: if `Files` is not REQUESTED, every row looks empty. With the stub
+  // honouring fields[], asking for the wrong columns makes these counts explode.
+  ok('not everything is reported missing — Files is actually requested',
+     d.auditNow.length + d.auditBacklog < AUDITS.length, `${d.auditNow.length}+${d.auditBacklog} of ${AUDITS.length}`);
+  ok('the row that HAS a file is excluded from every bucket',
+     d.totalAuditsMissing === AUDITS.length - 1, `${d.totalAuditsMissing} of ${AUDITS.length}`);
+  ok('same on the notices side', d.totalNcsMissing === 4, String(d.totalNcsMissing));
 
   const html = m.buildHtml(d);
   ok('the email names the chased rows', html.includes('OWFFM0065') && html.includes('OMNCN1128'));

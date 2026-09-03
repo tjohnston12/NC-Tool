@@ -6,6 +6,10 @@
  * responsible person + the NC admin, and stamps "Action Plan Reminder Sent" so
  * it does not nag more than once every REMIND_EVERY_DAYS.
  *
+ * WHICH NCs ARE CHASED: see SKIP_STATUSES below. This email states, as a fact,
+ * that no action plan has been started — so it must never reach someone whose
+ * NC has already moved past the point where an action plan is owed.
+ *
  * Triggered by Vercel Cron (see vercel.json). Manual: /api/nc-followup?preview=1
  * (lists candidates without sending), or ?token=<CRON_SECRET> to force a send.
  *
@@ -28,6 +32,26 @@ const ADMIN_EMAIL = process.env.NC_ADMIN_EMAIL || 'tjohnston@mrdc.ca';
 const CRON_SECRET = process.env.CRON_SECRET;
 
 const REMIND_EVERY_DAYS = 7;   // don't re-nag the same NC more often than this
+
+/* Statuses that STOP the action-plan chaser (Troy, 2026-09-03).
+ *
+ * 'Closed' and 'Cancelled' are terminal and were always excluded. The other
+ * three were not, and that was the live bug: on 2026-09-03 this cron was still
+ * chasing 15 NCNs — 4 Letter Sent, 8 Ready for Review, 3 Verification — some
+ * every 7 days for years (OMNCN0612 was raised 2017-05-31). In all three the
+ * responder has FINISHED and handed the NC on:
+ *   Ready for Review — they submitted their response
+ *   Letter Sent      — the Province response letter has gone to NBHC
+ *   Verification     — it is being signed off
+ * The email says "no action plan has been started ... within 5 working days",
+ * which is not a true statement to send any of them. Chasing continues for
+ * New / Containment / Root Cause / Corrective Action, which is where the
+ * 5-working-day rule actually bites.
+ *
+ * Keep in step with TERMINAL / STATUSES in api/ncs.js — that file owns the
+ * status vocabulary, and the manual "send follow-up" button there has its own
+ * (narrower, deliberate) guard. _tests/test-nc-followup.js pins both. */
+const SKIP_STATUSES = ['Closed', 'Cancelled', 'Letter Sent', 'Ready for Review', 'Verification'];
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -52,12 +76,16 @@ async function at(url, method = 'GET', body) {
 async function candidates() {
   const rows = [];
   let offset;
-  const filter = `AND({Status}!='Closed',{Status}!='Cancelled',{Action Plan Started}='',{Date Raised}!='')`;
+  const skip = SKIP_STATUSES.map(st => `{Status}!='${st}'`).join(',');
+  const filter = `AND(${skip},{Action Plan Started}='',{Date Raised}!='')`;
   do {
     const p = new URLSearchParams();
     p.set('pageSize', '100');
     p.set('filterByFormula', filter);
-    ['NC #', 'Responsible Person', 'Date Raised', 'Action Plan Started', 'Action Plan Reminder Sent'].forEach(f => p.append('fields[]', f));
+    // 'Status' MUST be requested: Airtable returns only the fields named here, so
+    // without it the belt-and-braces check below would read undefined and pass.
+    ['NC #', 'Status', 'Responsible Person', 'Date Raised', 'Action Plan Started', 'Action Plan Reminder Sent']
+      .forEach(f => p.append('fields[]', f));
     if (offset) p.set('offset', offset);
     const json = await at(`${AT}?${p.toString()}`);
     for (const r of json.records) rows.push({ id: r.id, ...r.fields });
@@ -65,6 +93,11 @@ async function candidates() {
   } while (offset);
   const t = today();
   return rows.filter(r => {
+    // Second line of defence. The formula above already excludes these, but a
+    // formula is a string sent to someone else's service: a typo, a renamed
+    // choice or a filter that silently fails to apply would put a real email in
+    // front of a real person. Checked here against the value we actually read.
+    if (SKIP_STATUSES.includes(String(r['Status'] || '').trim())) return false;
     const due = addBusinessDays(r['Date Raised'], 5);
     if (t <= due) return false;                                          // still inside the 5-working-day window
     const last = r['Action Plan Reminder Sent'];
@@ -140,7 +173,8 @@ module.exports = async (req, res) => {
     if (preview) {
       res.status(200).json({
         ok: true, overdue_to_start: list.length,
-        ncs: list.map(n => ({ nc: n['NC #'], raised: n['Date Raised'], deadline: addBusinessDays(n['Date Raised'], 5), responsible: n['Responsible Person'] || null })),
+        skipped_statuses: SKIP_STATUSES,
+        ncs: list.map(n => ({ nc: n['NC #'], status: n['Status'] || null, raised: n['Date Raised'], deadline: addBusinessDays(n['Date Raised'], 5), responsible: n['Responsible Person'] || null })),
       });
       return;
     }
