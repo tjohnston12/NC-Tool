@@ -6,7 +6,7 @@
  * responsible person + the NC admin, and stamps "Action Plan Reminder Sent" so
  * it does not nag more than once every REMIND_EVERY_DAYS.
  *
- * WHICH NCs ARE CHASED: see SKIP_STATUSES below. This email states, as a fact,
+ * WHICH NCs ARE CHASED: see CHASE_STATUSES below. This email states, as a fact,
  * that no action plan has been started — so it must never reach someone whose
  * NC has already moved past the point where an action plan is owed.
  *
@@ -33,25 +33,46 @@ const CRON_SECRET = process.env.CRON_SECRET;
 
 const REMIND_EVERY_DAYS = 7;   // don't re-nag the same NC more often than this
 
-/* Statuses that STOP the action-plan chaser (Troy, 2026-09-03).
+/* The ONLY statuses this cron may chase (Troy, 2026-09-17).
  *
- * 'Closed' and 'Cancelled' are terminal and were always excluded. The other
- * three were not, and that was the live bug: on 2026-09-03 this cron was still
- * chasing 15 NCNs — 4 Letter Sent, 8 Ready for Review, 3 Verification — some
- * every 7 days for years (OMNCN0612 was raised 2017-05-31). In all three the
- * responder has FINISHED and handed the NC on:
- *   Ready for Review — they submitted their response
- *   Letter Sent      — the Province response letter has gone to NBHC
- *   Verification     — it is being signed off
- * The email says "no action plan has been started ... within 5 working days",
- * which is not a true statement to send any of them. Chasing continues for
- * New / Containment / Root Cause / Corrective Action, which is where the
- * 5-working-day rule actually bites.
+ * ⚠️ THIS IS AN ALLOW-LIST ON PURPOSE. It was a deny-list twice, and the same
+ * bug arrived twice: a status nobody thought about defaulted to "chase", and
+ * real people got real email about work they had already done.
+ *   2026-09-03 — 15 NCNs chased at Letter Sent / Ready for Review / Verification,
+ *                some weekly for years. Fixed by adding three names to the list.
+ *   2026-09-17 — 65 NCNs chased at Corrective Action (55) and Root Cause (6),
+ *                raised as far back as 2012, to five managers and Troy.
+ * The second one was not a regression: 'Corrective Action' and 'Root Cause' had
+ * never been excluded, and the 2026-09-03 verification read `overdue_to_start:0`
+ * three days after a firing, while every candidate was still inside the 7-day
+ * REMIND_EVERY_DAYS window. The counter was right; reading it mid-cycle was not.
+ *
+ * With an allow-list, a status nobody has thought about sends nothing.
+ *
+ * Why these two and no others: the email asserts "no action plan has been
+ * started ... within 5 working days". That is only a fair thing to say to
+ * someone whose NC has not yet been analysed at all.
+ *   New          — nothing has happened yet. Chase.
+ *   Containment  — immediate action recorded, planning still owed. Chase.
+ *   Root Cause / Corrective Action — the responder is past planning; most of
+ *                  these are legacy imports from the NBHC tracker where
+ *                  'Action Plan Started' was simply never populated.
+ *   Ready for Review / Letter Sent / Verification — finished and handed on.
+ *   Closed / Cancelled — terminal.
+ * An empty or unrecognised status is not chased either, which is the point.
  *
  * Keep in step with TERMINAL / STATUSES in api/ncs.js — that file owns the
- * status vocabulary, and the manual "send follow-up" button there has its own
- * (narrower, deliberate) guard. _tests/test-nc-followup.js pins both. */
-const SKIP_STATUSES = ['Closed', 'Cancelled', 'Letter Sent', 'Ready for Review', 'Verification'];
+ * status vocabulary. The manual "send follow-up" button there is deliberately
+ * wider (a person choosing to chase, refusing only on a terminal status); it
+ * reports whichever status is true rather than asserting this one.
+ * _tests/test-nc-followup.js pins both. */
+const CHASE_STATUSES = ['New', 'Containment'];
+
+/* The full status vocabulary, in workflow order. Only used to report the
+ * complement of CHASE_STATUSES in ?preview=1, so that list cannot drift out of
+ * step with this one by hand. Mirrors STATUSES in api/ncs.js. */
+const ALL_STATUSES = ['New', 'Containment', 'Root Cause', 'Corrective Action',
+                      'Ready for Review', 'Letter Sent', 'Verification', 'Closed', 'Cancelled'];
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -76,8 +97,8 @@ async function at(url, method = 'GET', body) {
 async function candidates() {
   const rows = [];
   let offset;
-  const skip = SKIP_STATUSES.map(st => `{Status}!='${st}'`).join(',');
-  const filter = `AND(${skip},{Action Plan Started}='',{Date Raised}!='')`;
+  const only = CHASE_STATUSES.map(st => `{Status}='${st}'`).join(',');
+  const filter = `AND(OR(${only}),{Action Plan Started}='',{Date Raised}!='')`;
   do {
     const p = new URLSearchParams();
     p.set('pageSize', '100');
@@ -92,18 +113,24 @@ async function candidates() {
     offset = json.offset;
   } while (offset);
   const t = today();
-  return rows.filter(r => {
+  // Counted, not just dropped: a candidate suppressed by the 7-day window is
+  // still being chased, just not today. Reporting only the first number is what
+  // made a live problem look solved on 2026-09-14 (see CHASE_STATUSES above).
+  let chasedRecently = 0;
+  const due = rows.filter(r => {
     // Second line of defence. The formula above already excludes these, but a
     // formula is a string sent to someone else's service: a typo, a renamed
     // choice or a filter that silently fails to apply would put a real email in
     // front of a real person. Checked here against the value we actually read.
-    if (SKIP_STATUSES.includes(String(r['Status'] || '').trim())) return false;
-    const due = addBusinessDays(r['Date Raised'], 5);
-    if (t <= due) return false;                                          // still inside the 5-working-day window
+    if (!CHASE_STATUSES.includes(String(r['Status'] || '').trim())) return false;
+    const deadline = addBusinessDays(r['Date Raised'], 5);
+    if (t <= deadline) return false;                                     // still inside the 5-working-day window
     const last = r['Action Plan Reminder Sent'];
-    if (last && daysBetween(last, t) < REMIND_EVERY_DAYS) return false;  // nagged recently
+    if (last && daysBetween(last, t) < REMIND_EVERY_DAYS) { chasedRecently++; return false; }
     return true;
   });
+  due.chasedRecently = chasedRecently;
+  return due;
 }
 
 async function emailsForNames(names) {
@@ -162,7 +189,12 @@ module.exports = async (req, res) => {
   const q = req.query || {};
   const token = q.token || String(req.headers['authorization'] || '').replace(/^Bearer\s+/i, '');
   const preview = q.preview === '1' || q.preview === 'true';
-  if (!isCron && !preview && CRON_SECRET && token !== CRON_SECRET) {
+  // Fail CLOSED. The old form was `CRON_SECRET && token !== CRON_SECRET`, which
+  // skipped the check entirely whenever the variable was unset or renamed — so
+  // deleting an env var silently opened a real-email endpoint to anyone with the
+  // URL. A manual run now needs a secret to exist AND to match; Vercel Cron still
+  // gets in on its own header, and ?preview=1 still sends and writes nothing.
+  if (!isCron && !preview && (!CRON_SECRET || token !== CRON_SECRET)) {
     res.status(401).json({ ok: false, error: 'unauthorized' }); return;
   }
 
@@ -173,7 +205,16 @@ module.exports = async (req, res) => {
     if (preview) {
       res.status(200).json({
         ok: true, overdue_to_start: list.length,
-        skipped_statuses: SKIP_STATUSES,
+        chase_statuses: CHASE_STATUSES,
+        // Kept, and derived rather than hand-maintained, because the deploy
+        // checklist in claude/working-agreement.md reads this field.
+        skipped_statuses: ALL_STATUSES.filter(st => !CHASE_STATUSES.includes(st)),
+        // ⚠️ overdue_to_start is "how many go out NOW", not "how many this cron
+        // is chasing" — anything reminded inside the window below is excluded
+        // from it and counted here instead. Read both, or a live problem looks
+        // solved when you happen to check between firings.
+        chased_recently: list.chasedRecently || 0,
+        remind_every_days: REMIND_EVERY_DAYS,
         ncs: list.map(n => ({ nc: n['NC #'], status: n['Status'] || null, raised: n['Date Raised'], deadline: addBusinessDays(n['Date Raised'], 5), responsible: n['Responsible Person'] || null })),
       });
       return;
