@@ -30,7 +30,13 @@
  */
 'use strict';
 const path = require('path');
-const API = path.join(__dirname, '..');
+// ⚠️ '..', 'api' — the handlers live in NC Tool/api/. This said just '..' until
+// 2026-09-17, so the suite could only ever run in a scratch directory where the
+// files had been copied to the repo root; from the repo as committed it threw
+// MODULE_NOT_FOUND before a single assertion ran. Worse, a stale copy sitting at
+// that root makes it run GREEN against the old code — which is how a run of this
+// suite passed 46/46 against a file that had just been rewritten.
+const API = path.join(__dirname, '..', 'api');
 
 let pass = 0, fail = 0; const failures = [];
 const ok = (n, c, x) => { if (c) pass++; else { fail++; failures.push(n + (x ? ' — ' + x : '')); } };
@@ -38,8 +44,13 @@ const eq = (n, g, w) => ok(n, JSON.stringify(g) === JSON.stringify(w), `got ${JS
 
 const ALL_STATUSES = ['New', 'Containment', 'Root Cause', 'Corrective Action',
                       'Ready for Review', 'Letter Sent', 'Verification', 'Closed', 'Cancelled'];
-const MUST_SKIP  = ['Closed', 'Cancelled', 'Letter Sent', 'Ready for Review', 'Verification'];
-const MUST_CHASE = ['New', 'Containment', 'Root Cause', 'Corrective Action'];
+/* 2026-09-17: this is now an ALLOW-list of two, not a deny-list of five.
+ * Root Cause and Corrective Action moved from chase to skip after the cron
+ * emailed 65 NCNs — 55 at Corrective Action, 6 at Root Cause, raised as far back
+ * as 2012 — to five managers and Troy. See CHASE_STATUSES in nc-followup.js. */
+const MUST_CHASE = ['New', 'Containment'];
+const MUST_SKIP  = ['Root Cause', 'Corrective Action',
+                    'Ready for Review', 'Letter Sent', 'Verification', 'Closed', 'Cancelled'];
 eq('the two sets partition every status', [...MUST_SKIP, ...MUST_CHASE].sort(), [...ALL_STATUSES].sort());
 
 process.env.AIRTABLE_PAT = 'pat_test';
@@ -62,6 +73,17 @@ function seed() {
       // 'Action Plan Started' deliberately absent — that is what the cron looks for
     },
   }));
+  // Two rows the status vocabulary does not cover. An allow-list must send
+  // nothing about either; the old deny-list would have chased both.
+  DB.push({
+    id: 'recUNKNOWN00001',
+    fields: { 'NC #': 'NC-UnknownStatus', 'Status': 'Awaiting Reply from NBHC',
+              'Responsible Person': 'Derek Melanson', 'Date Raised': RAISED },
+  });
+  DB.push({
+    id: 'recNOSTATUS0001',
+    fields: { 'NC #': 'NC-NoStatus', 'Responsible Person': 'Derek Melanson', 'Date Raised': RAISED },
+  });
   MAILS = []; PATCHES = []; LAST_FORMULA = null;
 }
 
@@ -100,6 +122,11 @@ function installFetch() {
     for (const m of formula.matchAll(/\{Status\}!='([^']+)'/g)) {
       rows = rows.filter(r => r.fields['Status'] !== m[1]);
     }
+    // The allow-list form: OR({Status}='New',{Status}='Containment'). The stub has
+    // to honour it, or it answers more generously than Airtable would and the
+    // server-side narrowing goes untested (working-agreement §2b).
+    const allow = [...formula.matchAll(/\{Status\}='([^']+)'/g)].map(m => m[1]);
+    if (allow.length) rows = rows.filter(r => allow.includes(r.fields['Status']));
     if (/\{Action Plan Started\}=''/.test(formula)) {
       rows = rows.filter(r => !r.fields['Action Plan Started']);
     }
@@ -149,16 +176,21 @@ function res() {
   for (const st of MUST_CHASE) {
     ok(`'${st}' IS still emailed`, chased.includes(st.replace(/\s/g, '')), `chased: ${chased.join(', ')}`);
   }
-  eq('exactly the four active statuses are chased', chased.sort(), MUST_CHASE.map(s => s.replace(/\s/g, '')).sort());
+  eq('exactly the two pre-analysis statuses are chased', chased.sort(), MUST_CHASE.map(s => s.replace(/\s/g, '')).sort());
   ok('every send was stamped so it cannot re-nag tomorrow', PATCHES.length === MAILS.length,
      `${PATCHES.length} patches vs ${MAILS.length} mails`);
   ok('the stamp writes Action Plan Reminder Sent',
      PATCHES.every(p => 'Action Plan Reminder Sent' in p.body.fields));
 
-  // The formula must carry all five — the JS guard alone would still fetch them.
+  // The formula must narrow server-side too — the JS guard alone would still
+  // fetch every open NC across the wire.
+  for (const st of MUST_CHASE) {
+    ok(`the Airtable formula asks for '${st}' server-side`,
+       LAST_FORMULA.includes(`{Status}='${st}'`), LAST_FORMULA);
+  }
   for (const st of MUST_SKIP) {
-    ok(`the Airtable formula excludes '${st}' server-side`,
-       LAST_FORMULA.includes(`{Status}!='${st}'`), LAST_FORMULA);
+    ok(`the Airtable formula does not ask for '${st}'`,
+       !LAST_FORMULA.includes(`{Status}='${st}'`), LAST_FORMULA);
   }
   ok("the formula still requires an empty Action Plan Started", /\{Action Plan Started\}=''/.test(LAST_FORMULA));
 
@@ -182,8 +214,8 @@ function res() {
   await followup({ method: 'GET', headers: { 'x-vercel-cron': '1' }, query: {} }, r2);
   const leaked = MAILS.map(m => (m.subject.match(/^NC NC-(\S+)/) || [])[1])
                       .filter(k => MUST_SKIP.some(s => s.replace(/\s/g, '') === k));
-  eq('with the formula defeated, the JS guard still blocks all five', leaked, []);
-  ok('and the active four still go out', MAILS.length === MUST_CHASE.length, `${MAILS.length}`);
+  eq('with the formula defeated, the JS guard still blocks every skipped status', leaked, []);
+  ok('and the two chaseable ones still go out', MAILS.length === MUST_CHASE.length, `${MAILS.length}`);
   global.fetch = realFetch;
 
   // ── 3. Preview writes and sends nothing ───────────────────────────────────
@@ -196,6 +228,71 @@ function res() {
   ok('preview reports the skipped statuses', Array.isArray(r3.body.skipped_statuses));
   eq('preview lists only chaseable NCs',
      (r3.body.ncs || []).map(n => n.status).sort(), [...MUST_CHASE].sort());
+  eq('preview names the statuses it chases', (r3.body.chase_statuses || []).sort(), [...MUST_CHASE].sort());
+  eq('preview still reports the complement, for the deploy checklist',
+     (r3.body.skipped_statuses || []).sort(), [...MUST_SKIP].sort());
+
+  // ── 3b. A status nobody thought about sends nothing ───────────────────────
+  // This is the whole reason the rule is an allow-list. Both of these rows are
+  // open, past their deadline and have no action plan — under a deny-list they
+  // would each have been emailed about.
+  {
+    seed(); installFetch();
+    const rr = res();
+    await followup({ method: 'GET', headers: { 'x-vercel-cron': '1' }, query: {} }, rr);
+    const subjects = MAILS.map(m => m.subject).join(' | ');
+    ok('an unrecognised status is not chased', !/UnknownStatus/.test(subjects), subjects);
+    ok('a record with no status at all is not chased', !/NoStatus/.test(subjects), subjects);
+    ok('and neither is stamped as reminded',
+       !PATCHES.some(p => p.id === 'recUNKNOWN00001' || p.id === 'recNOSTATUS0001'));
+    eq('still exactly the two chaseable ones', MAILS.length, MUST_CHASE.length);
+  }
+
+  // ── 3c. The 7-day window is reported, not just applied ────────────────────
+  // Reading `overdue_to_start: 0` between firings is what made a live problem
+  // look solved on 2026-09-14. Preview must show the suppressed ones too.
+  {
+    seed(); installFetch();
+    const recent = new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 10);
+    for (const row of DB) if (MUST_CHASE.includes(row.fields['Status'])) {
+      row.fields['Action Plan Reminder Sent'] = recent;
+    }
+    const rr = res();
+    await followup({ method: 'GET', headers: {}, query: { preview: '1' } }, rr);
+    eq('nothing goes out inside the 7-day window', rr.body.overdue_to_start, 0);
+    eq('but they are counted as still being chased', rr.body.chased_recently, MUST_CHASE.length);
+    eq('and the window itself is stated', rr.body.remind_every_days, 7);
+  }
+
+  // ── 3d. The guard fails CLOSED when CRON_SECRET is missing ────────────────
+  // The old form skipped the check entirely if the variable was unset, so
+  // deleting or renaming an env var silently opened a real-email endpoint.
+  {
+    const saved = process.env.CRON_SECRET;
+    delete process.env.CRON_SECRET;
+    delete require.cache[require.resolve(path.join(API, 'nc-followup.js'))];
+    const fresh = require(path.join(API, 'nc-followup.js'));
+    seed(); installFetch();
+    const rr = res();
+    await fresh({ method: 'GET', headers: {}, query: {} }, rr);
+    eq('no secret set, no header, no preview → 401', rr.code, 401);
+    eq('and nothing was emailed', MAILS.length, 0);
+    eq('and nothing was written', PATCHES.length, 0);
+
+    seed(); installFetch();
+    const rc = res();
+    await fresh({ method: 'GET', headers: { 'x-vercel-cron': '1' }, query: {} }, rc);
+    eq('Vercel Cron still gets in on its own header', rc.code, 200);
+
+    seed(); installFetch();
+    const rp = res();
+    await fresh({ method: 'GET', headers: {}, query: { preview: '1' } }, rp);
+    eq('and preview is still open, sending nothing', rp.code, 200);
+    eq('preview sent nothing', MAILS.length, 0);
+
+    if (saved === undefined) delete process.env.CRON_SECRET; else process.env.CRON_SECRET = saved;
+    delete require.cache[require.resolve(path.join(API, 'nc-followup.js'))];
+  }
 
   // ── 4. The manual button in ncs.js ────────────────────────────────────────
   process.env.NC_TABLE = 'Non Conformances';
