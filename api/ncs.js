@@ -474,6 +474,40 @@ function applyCors(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-user-role, x-app-role, x-user-id, x-user-name');
 }
 
+/* ⚠️ A RESPONSE THAT NAMES ITS CALLER CANNOT BE SHARED BY A CACHE.
+   Access-Control-Allow-Origin above is REFLECTED, so the same URL has a
+   different correct answer for each caller. Vary: Origin is supposed to keep
+   those apart — a browser honours it, Vercel's edge does not.
+
+   That cost a day on the assets API, in production on 2026-09-22: the patrol
+   form could not load the asset register at all, because the edge had kept the
+   DMT's copy of ?all=1 and handed it to www. See claude/asset-id-picker.md.
+
+   ⚠️ This API is MORE exposed to it than most, not less. The NC front-end sits
+   at www.mrdc-htra.com/nc/ while this stays on nc.mrdc-htra.com, so every
+   browser call here IS cross-origin and the header IS being cached. It works
+   today only because www is the one origin that asks. The day a second one
+   does — the DMT, audits, Asset 360 moving hosts — whichever asked last wins
+   and the other gets nothing, for as long as an hour on ?managers=1.
+
+   So the shared cache is kept only where nothing was reflected (a
+   server-to-server caller sends no Origin, and its response is the same for
+   everybody); a named caller gets the same freshness in its own browser and
+   nothing in between.
+
+   ⚠️ "private" was the first fix and only half of one: it stops the edge
+   sharing the response, and then the BROWSER'S own cache does the same thing —
+   it keeps ONE entry per URL and hands the stored one to the next origin that
+   asks. Measured on the assets API on 2026-09-22, after that deploy.
+
+   So a response that named its caller is kept by NOBODY. */
+function cacheFor(res, age, swr) {
+  const perCaller = !!res.getHeader('Access-Control-Allow-Origin');
+  res.setHeader('Cache-Control', perCaller
+    ? 'no-store'
+    : `s-maxage=${age}, stale-while-revalidate=${swr}`);
+}
+
 module.exports = async (req, res) => {
   applyCors(req, res);
   if (req.method === 'OPTIONS') { res.status(200).end(); return; }
@@ -489,12 +523,12 @@ module.exports = async (req, res) => {
     if (req.method === 'GET') {
       const qs = req.query || {};
       if (qs.managers === '1') {
-        res.setHeader('Cache-Control', 's-maxage=3600, stale-while-revalidate=86400');
+        cacheFor(res, 3600, 86400);
         res.status(200).json({ ok: true, managers: await managers() });
         return;
       }
       if (qs.stats === '1') {
-        res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=600');
+        cacheFor(res, 300, 600);
         res.status(200).json({ ok: true, stats: await stats() });
         return;
       }
