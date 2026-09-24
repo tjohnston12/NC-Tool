@@ -190,8 +190,12 @@ const S = (orgRole, appRole, opts = {}) => ({
      nc-followup.js was already fixed; nc-digest.js was not, until 2026-09-23. */
   for (const f of ['nc-digest.js', 'nc-followup.js']) {
     const s2 = strip(fs.readFileSync(path.join(API, f), 'utf8'));
+    /* Updated 2026-09-24. Still fail-closed, but the expression moved into a
+       `tokenOk` const when ?preview=1 stopped skipping the guard
+       (claude/nc-cron-guards.md). Behaviour is asserted for real in
+       _tests/test-cron-guards.js; this pins the SHAPE in both spellings. */
     ok(f + ' fails CLOSED when CRON_SECRET is unset',
-       /\(!CRON_SECRET \|\| token !== CRON_SECRET\)/.test(s2),
+       /!!CRON_SECRET && token === CRON_SECRET|\(!CRON_SECRET \|\| token !== CRON_SECRET\)/.test(s2),
        'the fail-open `CRON_SECRET && token !== CRON_SECRET` form is back');
   }
 }

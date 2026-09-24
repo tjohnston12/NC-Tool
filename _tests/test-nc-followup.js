@@ -233,7 +233,7 @@ function res() {
   // ── 3. Preview writes and sends nothing ───────────────────────────────────
   seed(); installFetch();
   const r3 = res();
-  await followup({ method: 'GET', headers: {}, query: { preview: '1' } }, r3);
+  await followup({ method: 'GET', headers: {}, query: { preview: '1', token: 'secret' } }, r3);
   ok('preview returns 200', r3.code === 200);
   ok('preview sends no email', MAILS.length === 0);
   ok('preview writes nothing', PATCHES.length === 0);
@@ -270,7 +270,7 @@ function res() {
       row.fields['Action Plan Reminder Sent'] = recent;
     }
     const rr = res();
-    await followup({ method: 'GET', headers: {}, query: { preview: '1' } }, rr);
+    await followup({ method: 'GET', headers: {}, query: { preview: '1', token: 'secret' } }, rr);
     eq('nothing goes out inside the 7-day window', rr.body.overdue_to_start, 0);
     eq('but they are counted as still being chased', rr.body.chased_recently, MUST_CHASE.length);
     eq('and the window itself is stated', rr.body.remind_every_days, 7);
@@ -298,8 +298,13 @@ function res() {
 
     seed(); installFetch();
     const rp = res();
-    await fresh({ method: 'GET', headers: {}, query: { preview: '1' } }, rp);
-    eq('and preview is still open, sending nothing', rp.code, 200);
+    /* ⚠️ Re-expressed 2026-09-24, deliberately. This used to assert "preview is
+       still open" — preview skipped the guard entirely, which let anyone with
+       the URL read live NC data including responsible-person names. It is now
+       gated like everything else, and with CRON_SECRET unset there is no token
+       that can satisfy it, so preview must be refused too. */
+    await fresh({ method: 'GET', headers: {}, query: { preview: '1', token: 'secret' } }, rp);
+    eq('and preview is refused too when CRON_SECRET is unset', rp.code, 401);
     eq('preview sent nothing', MAILS.length, 0);
 
     if (saved === undefined) delete process.env.CRON_SECRET; else process.env.CRON_SECRET = saved;
