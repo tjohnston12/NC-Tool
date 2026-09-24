@@ -45,6 +45,7 @@ const load = (f) => { delete require.cache[path.join(API, f)]; return require(pa
 let digest   = load('nc-digest.js');
 let followup = load('nc-followup.js');
 const mailIntake = load('nc-mail-intake.js');
+const auditFiles = load('nc-audit-files.js');
 const probe      = load('cron-header-probe.js');
 
 const mkRes = () => {
@@ -142,17 +143,65 @@ for (const [name, h] of [['nc-digest', digest], ['nc-followup', followup]]) {
      (await call(mailIntake, { query: { preview: '1', token: 'test-cron-secret' } })).code !== 401);
 }
 
-/* ── 5. ⚠️ The unresolved one, pinned as CURRENT BEHAVIOUR, not as correct ──
-   A bare `x-vercel-cron` header is accepted with no secret, in all three. If
-   the probe shows Vercel does not strip an inbound copy, THIS is the hole, and
-   these assertions are what will need changing when it is closed. */
+/* ── 5. ⚠️ THE HEADER IS NOT A CREDENTIAL ─────────────────────────────────
+   This section previously pinned the opposite, as current-but-not-correct
+   behaviour, with a note to change it deliberately once measured. It was
+   measured on 2026-09-24 with api/cron-header-probe.js: a client-supplied
+   `x-vercel-cron: 1` ARRIVES AT THE FUNCTION — Vercel does not strip it. So the
+   header granted anyone with the URL the right to fire real email and write
+   records. The trust is gone from all four endpoints. */
 {
-  session = null;
-  for (const [name, h] of [['nc-digest', digest], ['nc-followup', followup], ['nc-mail-intake', mailIntake]]) {
-    ok(`${name} currently accepts a bare x-vercel-cron header`,
-       (await call(h, { cron: true, query: { preview: '1' } })).code !== 401,
-       'if this starts failing the header trust was removed — update this test deliberately');
+  session = null; sentMail = 0;
+  for (const [name, h] of [['nc-digest', digest], ['nc-followup', followup],
+                           ['nc-mail-intake', mailIntake], ['nc-audit-files', auditFiles]]) {
+    const spoof = await call(h, { cron: true });
+    eq(`${name} refuses a spoofed x-vercel-cron header`, spoof.code, 401);
+    eq(`  ...and with preview too`, (await call(h, { cron: true, query: { preview: '1' } })).code, 401);
+
+    /* A refused request that LOOKS like a cron run is a broken schedule, and
+       must be loud rather than silent — the body names the likely cause. */
+    ok(`${name} says so when a cron-looking request is refused`,
+       /CRON_SECRET may not be reaching/.test((spoof.body && spoof.body.hint) || ''),
+       JSON.stringify(spoof.body));
+
+    // the token is now the only way in
+    ok(`${name} still admits a valid token`,
+       (await call(h, { query: { token: 'test-cron-secret', preview: '1' } })).code !== 401);
   }
+  eq('nothing was sent while probing the guard', sentMail, 0);
+
+  /* ⚠️ A SESSION IS NOT A LICENCE TO FIRE — nc-audit-files too. It sends email,
+     and a mutant that resolved the session unconditionally survived the first
+     sweep on this file: any signed-in NC user could have triggered the real
+     reminder by visiting the URL. Preview only. */
+  session = S(); sentMail = 0;
+  eq('nc-audit-files refuses a REAL send to a signed-in user with no token',
+     (await call(auditFiles, { cookie: true })).code, 401);
+  eq('  ...and sent nothing', sentMail, 0);
+  ok('  ...but still allows that user to preview',
+     (await call(auditFiles, { cookie: true, query: { preview: '1' } })).code !== 401);
+
+  /* `caller.allowed` is the auth service's own App Access check for NC. Being
+     signed in to the platform is not the same as having NC — a mutant dropping
+     that half survived a sweep on this file. */
+  session = { ok: true, allowed: false, user: { name: 'X', role: 'Employee', source: 'employee' }, apps: [], appRole: 'User' };
+  eq('nc-audit-files refuses a signed-in caller without NC access',
+     (await call(auditFiles, { cookie: true, query: { preview: '1' } })).code, 401);
+}
+
+/* ── 5b. nc-audit-files had the FAIL-OPEN form as well ────────────────────
+   `CRON_SECRET && token !== CRON_SECRET` — with the variable unset the whole
+   condition is false, so a bare GET would have SENT the reminder. */
+{
+  const saved = process.env.CRON_SECRET;
+  delete process.env.CRON_SECRET;
+  const fresh = load('nc-audit-files.js');
+  session = null; sentMail = 0;
+  eq('nc-audit-files refuses everything when CRON_SECRET is unset',
+     (await call(fresh, {})).code, 401);
+  eq('  ...including a spoofed cron header', (await call(fresh, { cron: true })).code, 401);
+  eq('  ...and sent nothing', sentMail, 0);
+  process.env.CRON_SECRET = saved; load('nc-audit-files.js');
 }
 
 /* ── 6. The probe tells you what arrived, and never leaks a secret ───────── */
@@ -178,11 +227,19 @@ for (const [name, h] of [['nc-digest', digest], ['nc-followup', followup]]) {
 /* ── 7. Source assertions ────────────────────────────────────────────────── */
 {
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
-  for (const f of ['nc-digest.js', 'nc-followup.js', 'nc-mail-intake.js']) {
+  for (const f of ['nc-digest.js', 'nc-followup.js', 'nc-mail-intake.js', 'nc-audit-files.js']) {
     const src = strip(fs.readFileSync(path.join(API, f), 'utf8'));
     ok(f + ' no longer lets preview skip the guard',
-       !/!isCron && !preview/.test(src),
+       !/!isCron && !preview|!tokenOk && !preview/.test(src),
        'the `&& !preview` form is back — that is the anonymous read');
+    /* ⚠️ The header must not appear in any guard condition again. It may only be
+       READ, to make a refused cron run loud. */
+    ok(f + ' does not trust x-vercel-cron as a credential',
+       !/!isCron\b/.test(src) && !/!looksLikeCron\b/.test(src),
+       'a request header is not a credential — measured spoofable 2026-09-24');
+    ok(f + ' still names a refused cron-looking request',
+       /looksLikeCron/.test(src),
+       'a broken schedule must be loud, not silent');
     /* Fail-closed is proved behaviourally in section 3; this only pins the
        SHAPE, so the `CRON_SECRET && token !== CRON_SECRET` form — which skips
        itself whenever the variable is unset or renamed — cannot come back.

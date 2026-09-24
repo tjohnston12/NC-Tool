@@ -167,10 +167,14 @@ function res() {
 (async () => {
   // ── 1. The cron ───────────────────────────────────────────────────────────
   const followup = require(path.join(API, 'nc-followup.js'));
+  /* ⚠️ A cron run is authenticated by the TOKEN now, not by `x-vercel-cron`.
+     That header was measured spoofable on 2026-09-24 (api/cron-header-probe.js)
+     and no longer grants anything — Vercel Cron presents
+     `Authorization: Bearer $CRON_SECRET`, which is what this mimics. */
   const runCron = async (query = {}) => {
     seed(); installFetch();
     const r = res();
-    await followup({ method: 'GET', headers: { 'x-vercel-cron': '1' }, query }, r);
+    await followup({ method: 'GET', headers: { authorization: 'Bearer secret' }, query }, r);
     return r;
   };
 
@@ -196,15 +200,22 @@ function res() {
 
   // The formula must narrow server-side too — the JS guard alone would still
   // fetch every open NC across the wire.
+  /* LAST_FORMULA is null when the run never reached Airtable — e.g. the guard
+     refused it. Assert that FIRST: a bare `.includes` on null throws, and a
+     suite that dies prints no tally, which in a loop over suites is
+     indistinguishable from a pass (§2b). */
+  ok('the run reached Airtable at all', typeof LAST_FORMULA === 'string',
+     'no formula was issued — the run was refused before it queried anything');
+  const FORMULA = LAST_FORMULA || '';
   for (const st of MUST_CHASE) {
     ok(`the Airtable formula asks for '${st}' server-side`,
-       LAST_FORMULA.includes(`{Status}='${st}'`), LAST_FORMULA);
+       FORMULA.includes(`{Status}='${st}'`), FORMULA);
   }
   for (const st of MUST_SKIP) {
     ok(`the Airtable formula does not ask for '${st}'`,
-       !LAST_FORMULA.includes(`{Status}='${st}'`), LAST_FORMULA);
+       !FORMULA.includes(`{Status}='${st}'`), FORMULA);
   }
-  ok("the formula still requires an empty Action Plan Started", /\{Action Plan Started\}=''/.test(LAST_FORMULA));
+  ok("the formula still requires an empty Action Plan Started", /\{Action Plan Started\}=''/.test(FORMULA));
 
   // ── 2. The JS guard is real, not decorative ───────────────────────────────
   // Prove it independently of the formula: if the formula silently stopped
@@ -223,7 +234,7 @@ function res() {
     return realFetch(url, opts);
   };
   let r2 = res();
-  await followup({ method: 'GET', headers: { 'x-vercel-cron': '1' }, query: {} }, r2);
+  await followup({ method: 'GET', headers: { authorization: 'Bearer secret' }, query: {} }, r2);
   const leaked = MAILS.map(m => (m.subject.match(/^NC NC-(\S+)/) || [])[1])
                       .filter(k => MUST_SKIP.some(s => s.replace(/\s/g, '') === k));
   eq('with the formula defeated, the JS guard still blocks every skipped status', leaked, []);
@@ -251,7 +262,7 @@ function res() {
   {
     seed(); installFetch();
     const rr = res();
-    await followup({ method: 'GET', headers: { 'x-vercel-cron': '1' }, query: {} }, rr);
+    await followup({ method: 'GET', headers: { authorization: 'Bearer secret' }, query: {} }, rr);
     const subjects = MAILS.map(m => m.subject).join(' | ');
     ok('an unrecognised status is not chased', !/UnknownStatus/.test(subjects), subjects);
     ok('a record with no status at all is not chased', !/NoStatus/.test(subjects), subjects);
@@ -293,8 +304,14 @@ function res() {
 
     seed(); installFetch();
     const rc = res();
+    /* ⚠️ Inverted 2026-09-24, deliberately. This asserted "Vercel Cron still
+       gets in on its own header" — which was exactly the hole: the header is
+       set by whoever makes the request, and was MEASURED arriving at the
+       function. With CRON_SECRET unset there is no valid token, so nothing
+       gets in, header or not. */
     await fresh({ method: 'GET', headers: { 'x-vercel-cron': '1' }, query: {} }, rc);
-    eq('Vercel Cron still gets in on its own header', rc.code, 200);
+    eq('a spoofed cron header gets in nowhere, secret or no secret', rc.code, 401);
+    eq('and it emailed nothing', MAILS.length, 0);
 
     seed(); installFetch();
     const rp = res();
