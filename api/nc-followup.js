@@ -30,6 +30,9 @@ const EMP_BASE    = process.env.EMPLOYEES_BASE  || 'appraSoUXoTbhroG6';
 const EMP_TABLE   = process.env.EMPLOYEES_TABLE || 'Employees';
 const ADMIN_EMAIL = process.env.NC_ADMIN_EMAIL || 'tjohnston@mrdc.ca';
 const CRON_SECRET = process.env.CRON_SECRET;
+// Preview is a READ of live NC data, so it must be authenticated — a signed-in
+// NC user, or the cron token. See the guard below.
+const { getCaller } = require('./_auth');
 
 const REMIND_EVERY_DAYS = 7;   // don't re-nag the same NC more often than this
 
@@ -194,8 +197,28 @@ module.exports = async (req, res) => {
   // deleting an env var silently opened a real-email endpoint to anyone with the
   // URL. A manual run now needs a secret to exist AND to match; Vercel Cron still
   // gets in on its own header, and ?preview=1 still sends and writes nothing.
-  if (!isCron && !preview && (!CRON_SECRET || token !== CRON_SECRET)) {
-    res.status(401).json({ ok: false, error: 'unauthorized' }); return;
+  const tokenOk = !!CRON_SECRET && token === CRON_SECRET;
+  /* ⚠️ `?preview=1` NO LONGER SKIPS THIS (2026-09-24). It used to sit in the
+     condition as `&& !preview`, which let anyone with the URL read live NC data
+     — NC numbers, statuses, dates and RESPONSIBLE PERSON names — with no secret
+     at all. Verified against production before the change: an anonymous
+     GET /api/nc-followup?preview=1 returned 200. nc-mail-intake.js never had
+     the hole; these two had drifted from it.
+
+     Preview still sends and writes nothing, so it does not need the CRON
+     secret specifically — it needs SOMEBODY authenticated. A signed-in NC user
+     is enough, and is better than the token because it keeps the secret out of
+     URLs and server logs. The token still works for a headless check.
+
+     ⚠️ STILL UNRESOLVED, and in all three crons: `isCron` is satisfied by the
+     mere presence of `x-vercel-cron`, a request header the caller sets. See
+     api/cron-header-probe.js — a temporary endpoint added to settle whether
+     Vercel strips an inbound copy, without firing a real digest. */
+  if (!isCron && !tokenOk) {
+    const caller = preview ? await getCaller(req) : null;
+    if (!caller || !caller.allowed) {
+      res.status(401).json({ ok: false, error: 'unauthorized' }); return;
+    }
   }
 
   try {
