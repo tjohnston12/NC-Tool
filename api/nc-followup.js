@@ -188,7 +188,21 @@ module.exports = async (req, res) => {
   if (!PAT || !BASE) { res.status(500).json({ ok: false, error: 'AIRTABLE_PAT and NC_BASE_ID must be set' }); return; }
 
   // Guard: allow Vercel Cron (sends x-vercel-cron), or a matching token for manual runs.
-  const isCron = !!req.headers['x-vercel-cron'];
+  /* ⚠️ `x-vercel-cron` IS NOT TRUSTED — renamed from `isCron` on purpose, because
+     that name asserted something a request header cannot establish.
+     MEASURED 2026-09-24 with api/cron-header-probe.js: a client-supplied
+     `x-vercel-cron: 1` ARRIVES AT THE FUNCTION. Vercel does not strip it. So the
+     old `!isCron && ...` guard could be bypassed by anyone with the URL — on an
+     endpoint that emails staff and writes records.
+
+     The token is now the only way in. Vercel Cron sends
+     `Authorization: Bearer $CRON_SECRET` when that variable is set on the
+     project, and it IS set here (verified via nc-mail-intake's own 401 hint).
+
+     The header is kept for ONE purpose: if a request that looks like a cron run
+     is refused, that is a BROKEN CRON, and it must be loud rather than silent —
+     it is logged and named in the response. */
+  const looksLikeCron = !!req.headers['x-vercel-cron'];
   const q = req.query || {};
   const token = q.token || String(req.headers['authorization'] || '').replace(/^Bearer\s+/i, '');
   const preview = q.preview === '1' || q.preview === 'true';
@@ -210,14 +224,20 @@ module.exports = async (req, res) => {
      is enough, and is better than the token because it keeps the secret out of
      URLs and server logs. The token still works for a headless check.
 
-     ⚠️ STILL UNRESOLVED, and in all three crons: `isCron` is satisfied by the
-     mere presence of `x-vercel-cron`, a request header the caller sets. See
-     api/cron-header-probe.js — a temporary endpoint added to settle whether
-     Vercel strips an inbound copy, without firing a real digest. */
-  if (!isCron && !tokenOk) {
+     RESOLVED 2026-09-24: the header trust is GONE from all four endpoints. A
+     client-supplied `x-vercel-cron` was measured arriving at the function, so
+     the token is now the only way in (Vercel Cron sends it as
+     `Authorization: Bearer $CRON_SECRET`, and that variable is set here). */
+  if (!tokenOk) {
     const caller = preview ? await getCaller(req) : null;
     if (!caller || !caller.allowed) {
-      res.status(401).json({ ok: false, error: 'unauthorized' }); return;
+      if (looksLikeCron) {
+        console.error('[nc-followup] REFUSED a request carrying x-vercel-cron with no valid token — ' +
+          'if this is a real cron run, CRON_SECRET is not reaching it and the schedule is broken.');
+      }
+      res.status(401).json({ ok: false, error: 'unauthorized',
+        ...(looksLikeCron ? { hint: 'carried x-vercel-cron but no valid token — CRON_SECRET may not be reaching Vercel Cron' } : {}) });
+      return;
     }
   }
 

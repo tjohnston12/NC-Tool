@@ -388,7 +388,21 @@ module.exports = async (req, res) => {
   if (!PAT || !BASE) { res.status(500).json({ ok: false, error: 'AIRTABLE_PAT and NC_BASE_ID must be set' }); return; }
 
   const q = req.query || {};
-  const isCron = !!req.headers['x-vercel-cron'];
+  /* ⚠️ `x-vercel-cron` IS NOT TRUSTED — renamed from `isCron` on purpose, because
+     that name asserted something a request header cannot establish.
+     MEASURED 2026-09-24 with api/cron-header-probe.js: a client-supplied
+     `x-vercel-cron: 1` ARRIVES AT THE FUNCTION. Vercel does not strip it. So the
+     old `!isCron && ...` guard could be bypassed by anyone with the URL — on an
+     endpoint that emails staff and writes records.
+
+     The token is now the only way in. Vercel Cron sends
+     `Authorization: Bearer $CRON_SECRET` when that variable is set on the
+     project, and it IS set here (verified via nc-mail-intake's own 401 hint).
+
+     The header is kept for ONE purpose: if a request that looks like a cron run
+     is refused, that is a BROKEN CRON, and it must be loud rather than silent —
+     it is logged and named in the response. */
+  const looksLikeCron = !!req.headers['x-vercel-cron'];
   const token = q.token || String(req.headers['authorization'] || '').replace(/^Bearer\s+/i, '');
   const preview = q.preview === '1' || q.preview === 'true';
   // Compare trimmed: a Vercel env value pasted with a trailing newline is invisible in the
@@ -397,13 +411,19 @@ module.exports = async (req, res) => {
   // Fails CLOSED: if CRON_SECRET is missing entirely, deny rather than run. This endpoint writes,
   // so an unset variable must not leave it open. Vercel Cron still gets in via x-vercel-cron.
   const expected = String(CRON_SECRET || '').trim();
-  if (!isCron && (!expected || String(token).trim() !== expected)) {
+  if (!expected || String(token).trim() !== expected) {
+      if (looksLikeCron) {
+        console.error('[nc-mail-intake] REFUSED a request carrying x-vercel-cron with no valid token — ' +
+          'if this is a real cron run, CRON_SECRET is not reaching it and the schedule is broken.');
+      }
     res.status(401).json({
       ok: false,
       error: 'unauthorized',
-      hint: CRON_SECRET
-        ? 'token did not match CRON_SECRET (compared with surrounding whitespace ignored)'
-        : 'CRON_SECRET is not set on this deployment, so manual runs are refused',
+      hint: !CRON_SECRET
+        ? 'CRON_SECRET is not set on this deployment, so every run is refused'
+        : looksLikeCron
+          ? 'carried x-vercel-cron but no valid token — CRON_SECRET may not be reaching Vercel Cron'
+          : 'token did not match CRON_SECRET (compared with surrounding whitespace ignored)',
     });
     return;
   }

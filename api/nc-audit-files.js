@@ -46,6 +46,8 @@ const RESEND_FROM = process.env.RESEND_FROM || 'quality@mrdc-htra.com';
 const ADMIN_EMAIL = process.env.NC_ADMIN_EMAIL || 'tjohnston@mrdc.ca';
 const APP_URL     = process.env.NC_APP_URL || 'https://www.mrdc-htra.com/nc';
 const CRON_SECRET = process.env.CRON_SECRET;
+// ?preview=1 is a READ of live audit/NC data, so it needs a session or the token.
+const { getCaller } = require('./_auth');
 
 const RECENT_DAYS = 90;
 const TERMINAL = ['Closed', 'Cancelled'];
@@ -198,12 +200,33 @@ const summary = d => ({
 
 module.exports = async (req, res) => {
   if (!PAT || !BASE) { res.status(500).json({ ok: false, error: 'AIRTABLE_PAT and NC_BASE_ID must be set' }); return; }
-  const isCron = !!req.headers['x-vercel-cron'];
+  /* ⚠️ This endpoint SENDS EMAIL, and its guard carried all three faults at once
+     until 2026-09-24:
+       1. `!isCron` trusted `x-vercel-cron` — MEASURED spoofable, the header
+          arrives at the function when a client sets it (cron-header-probe.js).
+       2. `!preview` let anyone read the audit/NC backlog with no credential.
+       3. `CRON_SECRET && token !== CRON_SECRET` is the FAIL-OPEN form §2b warns
+          about: with the variable unset the whole condition is false, so a bare
+          GET would have SENT the reminder. CRON_SECRET is set today, which is
+          the only reason that one was not live.
+     It is not in vercel.json — nc-digest calls sendReminder() in-process at the
+     end of its Monday run, which this change does not touch. */
+  const looksLikeCron = !!req.headers['x-vercel-cron'];
   const q = req.query || {};
   const token = q.token || String(req.headers['authorization'] || '').replace(/^Bearer\s+/i, '');
   const preview = q.preview === '1' || q.preview === 'true';
-  if (!isCron && !preview && CRON_SECRET && token !== CRON_SECRET) {
-    res.status(401).json({ ok: false, error: 'unauthorized' }); return;
+  const tokenOk = !!CRON_SECRET && token === CRON_SECRET;
+  if (!tokenOk) {
+    const caller = preview ? await getCaller(req) : null;
+    if (!caller || !caller.allowed) {
+      if (looksLikeCron) {
+        console.error('[nc-audit-files] REFUSED a request carrying x-vercel-cron with no valid token — ' +
+          'if this is a real cron run, CRON_SECRET is not reaching it and the schedule is broken.');
+      }
+      res.status(401).json({ ok: false, error: 'unauthorized',
+        ...(looksLikeCron ? { hint: 'carried x-vercel-cron but no valid token — CRON_SECRET may not be reaching Vercel Cron' } : {}) });
+      return;
+    }
   }
   try {
     if (preview) {
