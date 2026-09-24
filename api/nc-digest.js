@@ -151,7 +151,22 @@ module.exports = async (req, res) => {
   const q = req.query || {};
   const token = q.token || String(req.headers['authorization'] || '').replace(/^Bearer\s+/i, '');
   const preview = q.preview === '1' || q.preview === 'true';
-  if (!isCron && !preview && CRON_SECRET && token !== CRON_SECRET) {
+  /* Fail CLOSED — the same correction nc-followup.js already carries. The old
+     form was `CRON_SECRET && token !== CRON_SECRET`, which skipped the check
+     entirely whenever the variable was unset or renamed, silently opening a
+     real-email endpoint to anyone with the URL. A manual run now needs a secret
+     to exist AND to match; Vercel Cron still gets in on its own header, and
+     ?preview=1 still sends nothing.
+
+     ⚠️ SEPARATE, UNFIXED, AND IN BOTH FILES: `isCron` is
+     `!!req.headers['x-vercel-cron']` — a request header. If Vercel does not
+     strip an inbound copy, sending it bypasses this guard whatever the secret
+     says. NOT probed, because the only probe that would settle it FIRES THE
+     DIGEST at real recipients. Vercel also sends `Authorization: Bearer
+     $CRON_SECRET` on cron requests when the variable is set, so the fix is
+     probably to require the token unconditionally and stop trusting the header
+     — but getting that wrong stops three live crons, so it is Troy's call. */
+  if (!isCron && !preview && (!CRON_SECRET || token !== CRON_SECRET)) {
     res.status(401).json({ ok: false, error: 'unauthorized' }); return;
   }
 

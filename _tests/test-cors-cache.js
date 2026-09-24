@@ -34,16 +34,25 @@ const eq = (n, g, w) => ok(n, JSON.stringify(g) === JSON.stringify(w),
 
 const cors = (SRC.match(/const ORIGIN_OK = [^\n]*\n+function applyCors\(req, res\) \{[\s\S]*?\n\}/) || [''])[0];
 ok('applyCors() and its origin pattern can be lifted', !!cors);
-const cf = (SRC.match(/function cacheFor\(res, age, swr\) \{[\s\S]*?\n\}/) || [''])[0];
+// ⚠️ The signature gained a `caller` on 2026-09-23. A lift keyed to the old
+// one yields '' silently and the suite then dies in stub() without printing a
+// tally — which is how this was noticed.
+const cf = (SRC.match(/function cacheFor\(res, age, swr[^)]*\) \{[\s\S]*?\n\}/) || [''])[0];
 ok('cacheFor() can be lifted too', !!cf);
 
-function stub(origin, tail) {
+function stub(origin, tail, caller) {
   const h = {};
   const res = { setHeader: (k, v) => { h[k] = v; }, getHeader: k => h[k] };
   const req = { headers: origin === undefined ? {} : { origin } };
-  new Function('req', 'res', cors + '\n' + cf + '\napplyCors(req, res);' + (tail || ''))(req, res);
+  new Function('req', 'res', 'caller',
+    cors + '\n' + cf + '\napplyCors(req, res);' + (tail || ''))(req, res, caller);
   return h;
 }
+// A signed-in caller. ⚠️ Since 2026-09-23 this endpoint requires one, so the
+// "no Origin" path below is now only reachable by a request with no session —
+// which this API refuses. Both are still asserted: the rule must stay correct
+// for the caller it would apply to.
+const PERSON = { name: 'Someone' };
 {
   const www = stub('https://www.mrdc-htra.com');
   const dmt = stub('https://dmt.mrdc-htra.com');
@@ -69,14 +78,14 @@ function stub(origin, tail) {
 {
   /* Nothing reflected — a server-to-server caller — gets the same response as
      everybody else, so the shared cache is kept. This is the fast path. */
-  const anon = stub(undefined, '\ncacheFor(res, 3600, 86400);');
+  const anon = stub(undefined, '\ncacheFor(res, 3600, 86400, caller);', null);
   ok('a caller with no Origin reflects nothing',
      !('Access-Control-Allow-Origin' in anon), JSON.stringify(anon));
   eq('so its response may still be shared, at the interval it asked for',
      anon['Cache-Control'], 's-maxage=3600, stale-while-revalidate=86400');
 
   /* ⚠️ A named caller. Its response is wrong for anybody else. */
-  const named = stub('https://www.mrdc-htra.com', '\ncacheFor(res, 3600, 86400);');
+  const named = stub('https://www.mrdc-htra.com', '\ncacheFor(res, 3600, 86400, caller);', PERSON);
   eq('a named caller is named in the response',
      named['Access-Control-Allow-Origin'], 'https://www.mrdc-htra.com');
   /* ⚠️ Kept by NOBODY, not merely "private". "private" stops the edge sharing
@@ -87,7 +96,7 @@ function stub(origin, tail) {
   ok('no cache directive of any kind survives on it',
      !/s-maxage|public|private|max-age=[1-9]/.test(named['Cache-Control']), named['Cache-Control']);
 
-  const stats = stub('https://www.mrdc-htra.com', '\ncacheFor(res, 300, 600);');
+  const stats = stub('https://www.mrdc-htra.com', '\ncacheFor(res, 300, 600, caller);', PERSON);
   eq('the stats branch is treated no differently', stats['Cache-Control'], 'no-store');
 }
 {
@@ -95,8 +104,11 @@ function stub(origin, tail) {
      step with applyCors's own allow-list. */
   ok('cacheFor reads the header rather than re-deciding the origin',
      /res\.getHeader\('Access-Control-Allow-Origin'\)/.test(SRC));
-  ok('the managers list goes through it', /qs\.managers === '1'[\s\S]{0,200}cacheFor\(res, 3600, 86400\);/.test(SRC));
-  ok('and so do the stats', /qs\.stats === '1'[\s\S]{0,200}cacheFor\(res, 300, 600\);/.test(SRC));
+  ok('the managers list goes through it', /qs\.managers === '1'[\s\S]{0,200}cacheFor\(res, 3600, 86400, caller\);/.test(SRC));
+  ok('and so do the stats', /qs\.stats === '1'[\s\S]{0,200}cacheFor\(res, 300, 600, caller\);/.test(SRC));
+  // A signed-in response is per-caller even with nothing reflected.
+  ok('and a session makes a response per-caller', /\|\| !!caller/.test(cf),
+     'the session branch is gone from cacheFor');
   ok('no Cache-Control anywhere still hard-codes a shared cache',
      !/setHeader\('Cache-Control', *'(public|s-maxage)/.test(SRC),
      (SRC.match(/setHeader\('Cache-Control', *'(public|s-maxage)[^)]*\)/) || [])[0]);

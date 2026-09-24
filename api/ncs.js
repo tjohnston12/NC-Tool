@@ -31,6 +31,10 @@
  *
  * Env: AIRTABLE_PAT (must include the MRDC-HTRA-NC base), NC_BASE_ID
  */
+// Server-side identity: the shared htra_session cookie, validated by the auth
+// service. Replaced the spoofable x-user-* headers on 2026-09-23.
+const { requireCaller } = require('./_auth');
+
 'use strict';
 
 const PAT = process.env.AIRTABLE_PAT;
@@ -468,7 +472,14 @@ const APP_URL = process.env.NC_APP_URL || 'https://www.mrdc-htra.com/nc';
 const ORIGIN_OK = /^https:\/\/([a-z0-9-]+\.)*mrdc-htra\.com$|^https:\/\/[a-z0-9-]+\.vercel\.app$/i;
 function applyCors(req, res) {
   const origin = req.headers && req.headers.origin;
-  if (origin && ORIGIN_OK.test(origin)) res.setHeader('Access-Control-Allow-Origin', origin);
+  if (origin && ORIGIN_OK.test(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    /* ⚠️ Required for the cookie to travel. The NC page is served from www. and
+       this API is on nc., so without this the session never arrives and every
+       signed-in request reads as anonymous. A wildcard origin is illegal on a
+       credentialed request, hence inside the allow-list branch. */
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
   res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-user-role, x-app-role, x-user-id, x-user-name');
@@ -501,8 +512,14 @@ function applyCors(req, res) {
    asks. Measured on the assets API on 2026-09-22, after that deploy.
 
    So a response that named its caller is kept by NOBODY. */
-function cacheFor(res, age, swr) {
-  const perCaller = !!res.getHeader('Access-Control-Allow-Origin');
+/* ⚠️ The origin half is the 2026-09-22 rule and is what protects this API: the
+   NC page is cross-origin, so a reflected origin already forces no-store on
+   every signed-in response. The caller half is DEFENCE and is currently
+   unreachable — it would only bite if a page were served from nc.mrdc-htra.com
+   itself, which is how the DMT got caught on 2026-09-23. (nc.'s own
+   public/index.html is dead: vercel.json redirects / to www., §2b.) */
+function cacheFor(res, age, swr, caller) {
+  const perCaller = !!res.getHeader('Access-Control-Allow-Origin') || !!caller;
   res.setHeader('Cache-Control', perCaller
     ? 'no-store'
     : `s-maxage=${age}, stale-while-revalidate=${swr}`);
@@ -513,22 +530,31 @@ module.exports = async (req, res) => {
   if (req.method === 'OPTIONS') { res.status(200).end(); return; }
   if (!PAT || !BASE) { res.status(500).json({ ok: false, error: 'AIRTABLE_PAT and NC_BASE_ID must be set' }); return; }
 
-  const userRole = String(req.headers['x-user-role'] || '');
-  const appRole  = String(req.headers['x-app-role']  || '');
-  const userName = String(req.headers['x-user-name'] || '');
-  const isAdmin  = userRole === 'Admin' || userRole === 'Owner' || appRole === 'Admin';
-  const canWork  = isAdmin || appRole === 'Manager' || userRole === 'Manager';
+  /* ⚠️ Identity BEFORE the try. Inside it, requireCaller's 401 would be caught
+     by this handler's own catch and returned as a 500 (§2b).
+
+     Session only — ncs.js has no machine caller. The DMT's intake posts to
+     /api/nc-intake, which keeps its own INTAKE_SECRET and is untouched. */
+  const caller = await requireCaller(req, res);
+  if (!caller) return;
+
+  /* The same two rules as before, from the validated session instead of from
+     headers the caller sets. ⚠️ canWork admits an ORG Manager, which is NC's
+     own rule — neither DMT nor Assets does that. */
+  const userName = caller.name;
+  const isAdmin  = caller.isAdmin;
+  const canWork  = caller.canWork;
 
   try {
     if (req.method === 'GET') {
       const qs = req.query || {};
       if (qs.managers === '1') {
-        cacheFor(res, 3600, 86400);
+        cacheFor(res, 3600, 86400, caller);
         res.status(200).json({ ok: true, managers: await managers() });
         return;
       }
       if (qs.stats === '1') {
-        cacheFor(res, 300, 600);
+        cacheFor(res, 300, 600, caller);
         res.status(200).json({ ok: true, stats: await stats() });
         return;
       }

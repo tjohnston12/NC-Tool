@@ -93,6 +93,18 @@ function seed() {
 function installFetch() {
   global.fetch = async (url, opts = {}) => {
     const u = String(url);
+    /* ⚠️ api/ncs.js validates the session server-side since 2026-09-23, so its
+       handler calls the auth service before doing anything. Without this the
+       manual-button block below gets 401 on every call and its assertions read
+       as "the status guard is broken" when the guard was never reached. */
+    if (u.includes('auth.mrdc-htra.com')) {
+      return { ok: true, status: 200, json: async () => ({
+        ok: true, allowed: true, appRole: 'Admin',
+        user: { name: 'Troy Johnston', email: 'tjohnston@mrdc.ca', role: 'Owner',
+                source: 'employee', employeeId: 'recEMP' },
+        apps: ['NC'],
+      }) };
+    }
     if (u.startsWith('https://api.resend.com/emails')) {
       MAILS.push(JSON.parse(opts.body));
       return { ok: true, status: 200, json: async () => ({ id: 'msg_1' }) };
@@ -302,7 +314,11 @@ function res() {
     const r = res();
     await ncs({
       method: 'POST', url: '/api/ncs',
-      headers: { 'x-user-role': 'Owner', 'x-app-role': 'Admin', 'x-user-name': 'Troy Johnston', origin: 'https://www.mrdc-htra.com' },
+      /* The cookie is what authenticates now; the x-user-* headers are left in
+         place deliberately, to prove they neither help nor are needed. */
+      headers: { cookie: 'htra_session=test-session',
+                 'x-user-role': 'Owner', 'x-app-role': 'Admin', 'x-user-name': 'Troy Johnston',
+                 origin: 'https://www.mrdc-htra.com' },
       query: {}, body: { action: 'followup', id: recId },
     }, r);
     return r;
