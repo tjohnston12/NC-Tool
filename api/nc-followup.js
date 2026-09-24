@@ -33,6 +33,8 @@ const CRON_SECRET = process.env.CRON_SECRET;
 // Preview is a READ of live NC data, so it must be authenticated — a signed-in
 // NC user, or the cron token. See the guard below.
 const { getCaller } = require('./_auth');
+// Calendar dates come from New Brunswick's clock, not UTC — see api/_when.js.
+const { todayAtlantic } = require('./_when');
 
 const REMIND_EVERY_DAYS = 7;   // don't re-nag the same NC more often than this
 
@@ -77,7 +79,7 @@ const CHASE_STATUSES = ['New', 'Containment'];
 const ALL_STATUSES = ['New', 'Containment', 'Root Cause', 'Corrective Action',
                       'Ready for Review', 'Letter Sent', 'Verification', 'Closed', 'Cancelled'];
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => todayAtlantic();
 
 // Add N working days (Mon–Fri) to an ISO date string. Holidays are not accounted for.
 function addBusinessDays(dateStr, n) {

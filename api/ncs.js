@@ -34,6 +34,8 @@
 // Server-side identity: the shared htra_session cookie, validated by the auth
 // service. Replaced the spoofable x-user-* headers on 2026-09-23.
 const { requireCaller } = require('./_auth');
+// Calendar dates come from New Brunswick's clock, not UTC — see api/_when.js.
+const { todayAtlantic, stampAtlantic } = require('./_when');
 
 'use strict';
 
@@ -91,8 +93,8 @@ const RESPONSE_FIELDS = new Set(['Response Checklist', 'Response Files', 'Action
 const RESPONDER_STATUSES = ['Ready for Review'];
 
 const esc = s => String(s).replace(/'/g, "\\'");
-const today = () => new Date().toISOString().slice(0, 10);
-const nowStamp = () => new Date().toISOString().slice(0, 16).replace('T', ' ');
+const today = () => todayAtlantic();
+const nowStamp = () => stampAtlantic();
 
 // ── Audit log helpers ──────────────────────────────────────────────────────
 // Fields short enough to record the actual value change (old → new) in the log.
@@ -578,7 +580,7 @@ module.exports = async (req, res) => {
         const text = String(body.text || '').trim();
         if (!body.id || !text) { res.status(400).json({ ok: false, error: 'id and text are required' }); return; }
         const cur = await at(`${AT}/${body.id}`);
-        const stamp = `[${new Date().toISOString().slice(0, 16).replace('T', ' ')} · ${userName || 'unknown'}]`;
+        const stamp = `[${nowStamp()} · ${userName || 'unknown'}]`;
         const log = [(cur.fields['Activity Log'] || '').trim(), `${stamp} ${text}`].filter(Boolean).join('\n');
         const j = await at(`${AT}/${body.id}`, 'PATCH', { fields: { 'Activity Log': log } });
         res.status(200).json({ ok: true, record: { id: j.id, ...j.fields } });
@@ -640,7 +642,7 @@ module.exports = async (req, res) => {
       if (!fields['Due Date']) fields['Due Date'] = addBusinessDays(fields['Date Raised'], 10);
       if (!fields['Raised By']) fields['Raised By'] = userName;
       fields['Submitted At'] = new Date().toISOString();
-      const stamp = `[${new Date().toISOString().slice(0, 16).replace('T', ' ')} · ${userName || 'unknown'}]`;
+      const stamp = `[${nowStamp()} · ${userName || 'unknown'}]`;
       fields['Activity Log'] = `${stamp} NC raised`;
       const j = await at(AT, 'POST', { records: [{ fields }], typecast: true });
       try {

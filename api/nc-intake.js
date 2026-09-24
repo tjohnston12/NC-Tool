@@ -43,7 +43,9 @@ const AT_AUDIT = `https://api.airtable.com/v0/${BASE}/${encodeURIComponent(AUDIT
 const HDR    = { Authorization: `Bearer ${PAT}`, 'Content-Type': 'application/json' };
 const SECRET = process.env.INTAKE_SECRET;
 
-const today = () => new Date().toISOString().slice(0, 10);
+// Calendar dates come from New Brunswick's clock, not UTC — see api/_when.js.
+const { todayAtlantic, yearAtlantic } = require('./_when');
+const today = () => todayAtlantic();
 const isDate = s => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ''));
 const esc = s => String(s).replace(/'/g, "\\'");
 
@@ -169,7 +171,7 @@ async function importClosures(list) {
 // item never raises a second NC.
 async function importInternal(list) {
   const created = [], skipped = [], errors = [];
-  const year = new Date().getFullYear();
+  const year = yearAtlantic();
   // Current highest sequence for the year, incremented locally across the batch.
   let seq = 0;
   try {

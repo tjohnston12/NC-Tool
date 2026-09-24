@@ -76,7 +76,9 @@ const CRON_SECRET = process.env.CRON_SECRET;
 
 const MAX_PAGES = 6;          // hard stop on Graph paging
 const MAX_RANGE = 50;         // hard stop on OMNCN1111-OMNCN1115 style expansion
-const today = () => new Date().toISOString().slice(0, 10);
+// Calendar dates come from New Brunswick's clock, not UTC — see api/_when.js.
+const { todayAtlantic } = require('./_when');
+const today = () => todayAtlantic();
 const esc = s => String(s).replace(/'/g, "\\'");
 
 /* ---------------------------------------------------------------- parsing */

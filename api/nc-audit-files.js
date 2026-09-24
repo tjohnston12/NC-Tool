@@ -48,13 +48,17 @@ const APP_URL     = process.env.NC_APP_URL || 'https://www.mrdc-htra.com/nc';
 const CRON_SECRET = process.env.CRON_SECRET;
 // ?preview=1 is a READ of live audit/NC data, so it needs a session or the token.
 const { getCaller } = require('./_auth');
+// Calendar dates come from New Brunswick's clock, not UTC — see api/_when.js.
+const { todayAtlantic, daysAgoAtlantic } = require('./_when');
 
 const RECENT_DAYS = 90;
 const TERMINAL = ['Closed', 'Cancelled'];
 
 const esc = s => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
-const today = () => new Date().toISOString().slice(0, 10);
-function daysAgo(n) { const d = new Date(); d.setUTCDate(d.getUTCDate() - n); return d.toISOString().slice(0, 10); }
+const today = () => todayAtlantic();
+// ⚠️ Counted back from the Atlantic day. Counting back from the UTC instant
+// made 'the last 7 days' mean eight, every evening.
+const daysAgo = n => daysAgoAtlantic(n);
 
 async function atGet(url) {
   const res = await fetch(url, { headers: HDR });
